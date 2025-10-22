@@ -827,6 +827,7 @@ class Cinema4DImporter:
         self.total_files_processed = 0
         self.files_since_last_save = 0
         self.save_interval = 5  # Save every 5 files
+        self.selected_mode = 0  # Default to assembly mode
     
     def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None):
         """Build the Cinema 4D scene hierarchy from parsed data"""
@@ -991,7 +992,7 @@ class Cinema4DImporter:
         
         # Check if Redshift is available
         try:
-            import c4d.plugins
+            # NOTE: Don't use 'import c4d.plugins' here as it creates a local c4d variable that shadows the global c4d module
             # Redshift plugin ID may vary by version, try the most common one
             redshift_plugin_ids = [1036223, 1001059]  # Common Redshift plugin IDs
             redshift_plugin = None
