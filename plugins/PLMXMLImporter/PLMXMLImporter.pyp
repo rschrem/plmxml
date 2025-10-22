@@ -1326,9 +1326,8 @@ class PLMXMLDialog(gui.GeDialog):
                 c4d.gui.MessageDialog("Please select a valid PLMXML file.")
                 return True
             
-            # Close dialog and start import process
-            self.Close()
-            self.start_import_process()
+            # Run import process directly without closing dialog first (to maintain context)
+            self._run_import_process()
             return True
         
         elif id == self.IDC_CANCEL_BUTTON:
@@ -1336,8 +1335,8 @@ class PLMXMLDialog(gui.GeDialog):
         
         return True
     
-    def start_import_process(self):
-        """Start the import process based on selected mode"""
+    def _run_import_process(self):
+        """Run the import process based on selected mode"""
         # Get the current document
         doc = c4d.documents.GetActiveDocument()
         
@@ -1374,6 +1373,7 @@ class PLMXMLDialog(gui.GeDialog):
             if not plmxml_parser.parse_plmxml(self.plmxml_path):
                 logger.log("✗ PLMXML parsing failed", "ERROR")
                 logger.close()
+                c4d.gui.MessageDialog("PLMXML parsing failed. Check the log file for details.")
                 return
             
             # Build hierarchy based on selected mode
@@ -1381,15 +1381,15 @@ class PLMXMLDialog(gui.GeDialog):
             
             if success:
                 logger.log(f"🎉 Import completed successfully using mode: {mode_name}")
-                c4d.gui.MessageDialog(f"Import completed successfully using mode: {mode_name}")
+                c4d.gui.MessageDialog(f"Import completed successfully using mode: {mode_name}\nLog saved to: {log_path}")
             else:
                 logger.log(f"✗ Import failed with mode: {mode_name}", "ERROR")
-                c4d.gui.MessageDialog(f"Import failed with mode: {mode_name}")
+                c4d.gui.MessageDialog(f"Import failed with mode: {mode_name}\nCheck log for details: {log_path}")
             
         except Exception as e:
             logger.log(f"✗ Import process failed: {str(e)}", "ERROR")
             logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
-            c4d.gui.MessageDialog(f"Import process failed: {str(e)}")
+            c4d.gui.MessageDialog(f"Import process failed: {str(e)}\nCheck log for details: {log_path}")
         finally:
             logger.close()
 
