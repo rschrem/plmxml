@@ -173,3 +173,12 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - Redshift proxy export: In Cinema 4D 2025 (needs to be checked in future versions of Cinema 4D as this might change), command ID `1038650` saves the currently active document as a Redshift proxy: `c4d.CallCommand(1038650) # RS Proxy (*.rs)`
 - This command must be called with the document containing only the object to be exported as the active document
 - The command saves the file to the user's default location, so the proxy path needs to be set separately
+
+### 8.2 Logging and Output
+- The plugin creates separate log files for each mode: `importPlmxml_{Step}_log.txt`
+  - Mode 1 (Material Extraction): `importPlmxml_1_log.txt`
+  - Mode 2 (Create Redshift Proxies): `importPlmxml_2_log.txt`
+  - Mode 3 (Compile Redshift Proxies): `importPlmxml_3_log.txt`
+  - Mode 4 (Full Assembly): `importPlmxml_4_log.txt`
+- All logs are created in the same directory as the selected PLMXML file
+- Logs provide dual output to both console (Cinema 4D Command Line) and file for debugging

@@ -1341,9 +1341,19 @@ class PLMXMLDialog(gui.GeDialog):
         # Get the current document
         doc = c4d.documents.GetActiveDocument()
         
-        # Set up logging
-        log_path = os.path.join(os.path.dirname(self.plmxml_path), "plugin.log")
+        # Set up logging with requested format: importPlmxml_{Step}_log.txt
+        mode_steps = ["1", "2", "3", "4"]  # Material extraction, Create redshift proxies, Compile redshift proxies, Assembly
+        mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "4"
+        log_filename = f"importPlmxml_{mode_step}_log.txt"
+        log_path = os.path.join(os.path.dirname(self.plmxml_path), log_filename)
         logger = Logger(log_path)
+        
+        # Log the start of the process to the console as well
+        print(f"🚀 Starting import process for: {os.path.basename(self.plmxml_path)}")
+        print(f"📁 Using log file: {log_filename}")
+        logger.log(f"🚀 Starting import process for: {os.path.basename(self.plmxml_path)}", "INFO")
+        logger.log(f"📁 Using log file: {log_filename}", "INFO")
+        logger.log(f"🔧 Selected mode: {self.selected_mode}", "INFO")
         
         try:
             # Initialize components
@@ -1352,17 +1362,19 @@ class PLMXMLDialog(gui.GeDialog):
             geometry_manager = GeometryInstanceManager(logger)
             importer = Cinema4DImporter(logger, material_manager, geometry_manager)
             
+            # Map mode to string and create proper log file name
+            mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies", "assembly"]
+            mode_steps = ["1", "2", "3", "4"]  # Corresponding step numbers
+            mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "assembly"
+            mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "4"
+            
+            logger.log(f"🚀 Starting import process in mode: {mode_name}")
+            
             # Parse the PLMXML file
             if not plmxml_parser.parse_plmxml(self.plmxml_path):
                 logger.log("✗ PLMXML parsing failed", "ERROR")
                 logger.close()
                 return
-            
-            # Map mode to string
-            mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies", "assembly"]
-            mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "assembly"
-            
-            logger.log(f"🚀 Starting import process in mode: {mode_name}")
             
             # Build hierarchy based on selected mode
             success = importer.build_hierarchy(plmxml_parser, doc, mode_name)
