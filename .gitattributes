@@ -1,2 +1,3 @@
 # Use Git export-subst for version identifiers
 *.md export-subst
+*.pyp export-subst
