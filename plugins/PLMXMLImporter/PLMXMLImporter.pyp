@@ -1095,6 +1095,50 @@ class Cinema4DImporter:
             proxy_obj_clone = processing_obj.GetClone(c4d.COPYFLAGS_0)
             proxy_doc.InsertObject(proxy_obj_clone)
             
+            # Try to use Redshift's Python API for non-interactive proxy export
+            try:
+                import redshift
+                
+                # Create or get a Redshift renderer accessor
+                rs_renderer = redshift.Renderer.Redshift()
+                
+                # Setup export settings
+                settings = redshift.ProxyExportSettings()
+                
+                settings.exportSelectionOnly = False
+                settings.exportAnimations = False
+                settings.filePath = proxy_path
+                settings.exportMaterials = True
+                settings.exportInstances = True
+                settings.embedTextures = False
+                
+                # Get the active document to use with Redshift export
+                active_doc = c4d.documents.GetActiveDocument()
+                
+                # Call the export method - this should work non-interactively
+                success = rs_renderer.ExportProxy(active_doc, proxy_obj_clone, settings)
+                
+                if success:
+                    self.logger.log(f"✓ Redshift proxy exported using Redshift Python API: {proxy_path}")
+                else:
+                    self.logger.log(f"⚠ Redshift Python API export failed for {proxy_path}, trying fallback methods", "WARNING")
+                    raise RuntimeError("Redshift API export failed")
+                    
+            except ImportError:
+                self.logger.log("ℹ Redshift Python module not available, using fallback export methods", "INFO")
+                # Fall back to the previous approach
+                self._export_redshift_proxy_fallback(proxy_doc, proxy_path, proxy_obj_clone)
+            except Exception as e:
+                self.logger.log(f"⚠ Redshift Python API export failed: {str(e)}, trying fallback methods", "WARNING")
+                # Fall back to the previous approach
+                self._export_redshift_proxy_fallback(proxy_doc, proxy_path, proxy_obj_clone)
+        
+        except Exception as e:
+            self.logger.log(f"✗ Error creating Redshift proxy: {str(e)}", "ERROR")
+    
+    def _export_redshift_proxy_fallback(self, proxy_doc, proxy_path, proxy_obj_clone):
+        """Fallback method for Redshift proxy export when Python API is not available"""
+        try:
             # In Cinema 4D 2025, we need to save Redshift proxies without user interaction
             # The command 1038650 prompts user for file location, so we'll use SaveDocument instead
             
@@ -1131,7 +1175,7 @@ class Cinema4DImporter:
                         self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
                         self.logger.log(f"ℹ For Redshift use: Convert {os.path.basename(proxy_c4d_path)} to {os.path.basename(proxy_path)} manually or use Redshift proxy conversion")
                     else:
-                        self.logger.log(f"✗ Failed to save proxy file for: {jt_path}", "ERROR")
+                        self.logger.log(f"✗ Failed to save proxy file", "ERROR")
             else:
                 # No direct RS format available in this Cinema 4D version
                 # Check if there are other Redshift-specific format IDs we can use
@@ -1170,16 +1214,11 @@ class Cinema4DImporter:
                             self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
                             self.logger.log(f"ℹ For Redshift proxy: Load {os.path.basename(proxy_c4d_path)} in Cinema 4D and use Redshift's proxy creation tools or rename to .rs")
                         else:
-                            self.logger.log(f"✗ Failed to save proxy file for: {jt_path}", "ERROR")
-        
+                            self.logger.log(f"✗ Failed to save proxy file", "ERROR")
         except Exception as e:
-            self.logger.log(f"✗ Error creating Redshift proxy: {str(e)}", "ERROR")
+            self.logger.log(f"✗ Fallback Redshift proxy export failed: {str(e)}", "ERROR")
         
-        # Clean up the temporary document
-        temp_doc = None  # Allow garbage collection
-        proxy_doc = None  # Allow garbage collection
-        
-        self.logger.log(f"✓ Redshift proxy created for: {os.path.basename(jt_path)}")
+        self.logger.log(f"✓ Redshift proxy processing completed for: {os.path.basename(proxy_path)}")
         self.total_files_processed += 1
         
         # Increment files since last save counter
