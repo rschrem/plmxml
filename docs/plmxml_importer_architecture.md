@@ -1,4 +1,6 @@
 # PLMXML Assembly Importer Plugin - Technical Architecture Document
+**Version:** 3.1
+**Git Commit:** $Format:%H$
 
 ## 1. System Overview
 

@@ -3,7 +3,7 @@
 ## 1. Executive Summary
 
 **Product Name:** PLMXML Assembly Importer Plugin for Cinema 4D 2025
-**Version:** 3.0
+**Version:** 3.1
 **Project ID:** 1054321
 **Project Owner:** [Your Name]
 **Date:** [Current Date]
@@ -182,3 +182,33 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
   - Mode 4 (Full Assembly): `importPlmxml_4_log.txt`
 - All logs are created in the same directory as the selected PLMXML file
 - Logs provide dual output to both console (Cinema 4D Command Line) and file for debugging
+
+### 8.3 Material System Enhancements
+- **Material Reuse**: Check if materials with matching names already exist in the active document before creating new ones
+- **Property-Based Matching**: Compare material properties (base color, roughness, metalness) to identify similar materials for reuse
+- **Material Verification**: Confirm that created materials are properly inserted into the document
+- **Deduplication**: Enhanced material deduplication with tolerance-based matching system
+- **Keyword Detection**: Dynamic detection of new material keywords not in predefined lists
+- **Keyword Logging**: Log new material keywords as they are detected and report all new keywords in final statistics
+
+### 8.4 API Compatibility Improvements
+- **User Data API**: Proper handling of user data using AddUserData() instead of invalid GetUserDatDescription() method
+- **Animation Parameter**: Use numeric value 0 instead of invalid c4d.DESC_ANIM_OFF constant
+- **Reflection Layers**: Proper setup of reflection layers without attempting to clear existing ones using invalid MATERIAL_REFLECTION_LAYER constant
+- **Cinema 4D API**: Compatibility with Cinema 4D 2025 API requirements
+
+### 8.5 Dialog and UI Enhancements
+- **Standard Dialog IDs**: Use c4d.DLG_OK and c4d.DLG_CANCEL for proper button handling
+- **Modal Dialog Behavior**: Correct handling of modal dialogs with proper context
+- **UI Refresh**: Call c4d.EventAdd() after import completion to refresh Cinema 4D interface
+- **Button Management**: Proper ID management to prevent conflicts between buttons and other controls
+
+### 8.6 Error Handling and Robustness
+- **API Error Prevention**: Handle Cinema 4D API incompatibilities gracefully
+- **Material Verification**: Verify that materials are properly added to the document
+- **Fallback Strategies**: Multiple strategies for material reuse and creation
+- **Comprehensive Logging**: Detailed logging for troubleshooting and debugging
+
+### 8.7 Version Information
+- **Current Version**: 3.1 (updated from initial 3.0)
+- **Major Improvements**: Material verification and reuse, keyword detection, API compatibility fixes, dialog improvements

@@ -1,4 +1,6 @@
 # Product Brief
+**Version:** 3.1
+**Git Commit:** $Format:%H$
 
 Complete Specification for PLMXML Assembly Importer Plugin for Cinema 4D 2025
 Project Overview
@@ -10,7 +12,7 @@ Installation & Registration
 * Plugin ID: 1054321
 * Plugin Name: "PLMXML Assembly Importer"
 * Menu Location: Extensions → User Scripts → PLMXML Assembly Importer
-* Version: 3.0
+* Version: 3.1
 Dependencies
 import c4d
 from c4d import plugins, gui
