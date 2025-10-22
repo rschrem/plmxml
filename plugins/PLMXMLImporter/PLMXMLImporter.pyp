@@ -1266,12 +1266,13 @@ class PLMXMLDialog(gui.GeDialog):
         self.AddRadioText(self.IDC_MODE_COMPILE + 1, c4d.BFH_LEFT, 300, 20, "Full Assembly Import")
         self.GroupEnd()
         
-        # Select first mode by default (Material Extraction)
+        # Select first mode by default (Material Extraction) and set selected_mode accordingly
         self.SetBool(self.IDC_MODE_MATERIAL, True)
+        self.selected_mode = 0
         
         # Buttons
         self.GroupBegin(0, c4d.BFH_CENTER, cols=2)
-        self.AddButton(self.IDC_IMPORT_BUTTON, c4d.BFH_LEFT, name="Import")
+        self.AddButton(self.IDC_IMPORT_BUTTON, c4d.BFH_LEFT, name="OK")
         self.AddButton(self.IDC_CANCEL_BUTTON, c4d.BFH_RIGHT, name="Cancel")
         self.GroupEnd()
         
@@ -1294,13 +1295,6 @@ class PLMXMLDialog(gui.GeDialog):
             self.selected_mode = 0
             self.SetBool(self.IDC_MODE_MATERIAL, True)
             self.SetBool(self.IDC_MODE_PROXY, False)
-            self.SetBool(self.IDC_MODE_COMPILE, False)
-            self.SetBool(self.IDC_MODE_COMPILE + 1, False)
-        
-        elif id == self.IDC_MODE_PROXY:
-            self.selected_mode = 1
-            self.SetBool(self.IDC_MODE_MATERIAL, False)
-            self.SetBool(self.IDC_MODE_PROXY, True)
             self.SetBool(self.IDC_MODE_COMPILE, False)
             self.SetBool(self.IDC_MODE_COMPILE + 1, False)
         
@@ -1335,6 +1329,7 @@ class PLMXMLDialog(gui.GeDialog):
             # Close dialog and start import process
             self.Close()
             self.start_import_process()
+            return True
         
         elif id == self.IDC_CANCEL_BUTTON:
             self.Close()
@@ -1367,7 +1362,7 @@ class PLMXMLDialog(gui.GeDialog):
             mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies", "assembly"]
             mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "assembly"
             
-            self.logger.log(f"🚀 Starting import process in mode: {mode_name}")
+            logger.log(f"🚀 Starting import process in mode: {mode_name}")
             
             # Build hierarchy based on selected mode
             success = importer.build_hierarchy(plmxml_parser, doc, mode_name)
