@@ -1184,16 +1184,9 @@ class Cinema4DImporter:
         if not user_data:
             return
             
-        # Create a user data container
-        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_GROUP)
-        if bc is None:
-            return
-            
-        group_id = obj.AddUserData(bc)
-        group_descr = obj.GetUserDatDescription()
-        
         # Add each user value as a string user data
         for key, value in user_data.items():
+            # Create a container for the user data parameter
             bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_STRING)
             if bc is None:
                 continue
@@ -1203,8 +1196,10 @@ class Cinema4DImporter:
             bc[c4d.DESC_ANIMATE] = c4d.DESC_ANIM_OFF
             bc[c4d.DESC_SHADERLINKFLAG] = False
             
+            # Add the user data to the object
             id = obj.AddUserData(bc)
-            obj[id] = str(value)
+            if id:
+                obj[id] = str(value)
     
     def _apply_material_to_geometry(self, obj, material, doc):
         """Apply material to geometry objects (not null containers)"""
