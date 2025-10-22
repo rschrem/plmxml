@@ -55,8 +55,20 @@ class Logger:
 class MaterialPropertyInference:
     """Static methods for inferring PBR properties based on keywords"""
     
+    # Define known material keywords
+    METAL_KEYWORDS = ['stahl', 'steel', 'aluminium', 'aluminum', 'kupfer', 'copper', 
+                     'brass', 'messing', 'bronze', 'titan', 'titanium', 'eisen', 'iron']
+    PLASTIC_KEYWORDS = ['thermoplast', 'plastic', 'kunststoff', 'polymer', 'abs', 'pc', 'pom', 'pa', 'pfa']
+    RUBBER_KEYWORDS = ['elastomer', 'gummi', 'rubber', 'tpe', 'tps']
+    WOOD_KEYWORDS = ['holz', 'wood']
+    GLASS_KEYWORDS = ['glas', 'glass']
+    SEALANT_KEYWORDS = ['dichtstoff', 'sealant', 'dichtung']
+    
+    # Track unknown keywords encountered
+    unknown_keywords = set()
+    
     @staticmethod
-    def infer_material_properties(material_data):
+    def infer_material_properties(material_data, logger=None):
         """Infer material properties from material data dictionary"""
         # Extract material properties from dcx:TableAttribute columns
         mat_group = material_data.get('mat_group', '').lower()
@@ -70,38 +82,74 @@ class MaterialPropertyInference:
         full_material_desc = f"{mat_group} {mat_standard} {mat_number} {mat_term} {treatment} {body_name}".lower()
         
         # Check for metal materials
-        metal_keywords = ['stahl', 'steel', 'aluminium', 'aluminum', 'kupfer', 'copper', 
-                         'brass', 'messing', 'bronze', 'titan', 'titanium', 'eisen', 'iron']
-        if any(keyword in full_material_desc for keyword in metal_keywords):
+        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.METAL_KEYWORDS):
+            # Track unknown keywords
+            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.METAL_KEYWORDS, logger)
             return MaterialPropertyInference._create_metal_properties(mat_term, mat_group)
         
         # Check for plastic materials
-        plastic_keywords = ['thermoplast', 'plastic', 'kunststoff', 'polymer', 'abs', 'pc', 'pom', 'pa', 'pfa']
-        if any(keyword in full_material_desc for keyword in plastic_keywords):
+        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.PLASTIC_KEYWORDS):
+            # Track unknown keywords
+            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.PLASTIC_KEYWORDS, logger)
             return MaterialPropertyInference._create_plastic_properties(mat_term)
         
         # Check for rubber/elastomer materials
-        rubber_keywords = ['elastomer', 'gummi', 'rubber', 'tpe', 'tps']
-        if any(keyword in full_material_desc for keyword in rubber_keywords):
+        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.RUBBER_KEYWORDS):
+            # Track unknown keywords
+            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.RUBBER_KEYWORDS, logger)
             return MaterialPropertyInference._create_rubber_properties()
         
         # Check for wood materials
-        wood_keywords = ['holz', 'wood']
-        if any(keyword in full_material_desc for keyword in wood_keywords):
+        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.WOOD_KEYWORDS):
+            # Track unknown keywords
+            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.WOOD_KEYWORDS, logger)
             return MaterialPropertyInference._create_wood_properties(mat_term)
         
         # Check for glass materials
-        glass_keywords = ['glas', 'glass']
-        if any(keyword in full_material_desc for keyword in glass_keywords):
+        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.GLASS_KEYWORDS):
+            # Track unknown keywords
+            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.GLASS_KEYWORDS, logger)
             return MaterialPropertyInference._create_glass_properties()
         
         # Check for sealant materials
-        sealant_keywords = ['dichtstoff', 'sealant', 'dichtung']
-        if any(keyword in full_material_desc for keyword in sealant_keywords):
+        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.SEALANT_KEYWORDS):
+            # Track unknown keywords
+            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.SEALANT_KEYWORDS, logger)
             return MaterialPropertyInference._create_sealant_properties()
+        
+        # Track unknown keywords even for default material
+        MaterialPropertyInference._track_unknown_keywords(full_material_desc, 
+            MaterialPropertyInference.METAL_KEYWORDS + MaterialPropertyInference.PLASTIC_KEYWORDS + 
+            MaterialPropertyInference.RUBBER_KEYWORDS + MaterialPropertyInference.WOOD_KEYWORDS + 
+            MaterialPropertyInference.GLASS_KEYWORDS + MaterialPropertyInference.SEALANT_KEYWORDS, logger)
         
         # Default material
         return MaterialPropertyInference._create_default_properties()
+    
+    @staticmethod
+    def _track_unknown_keywords(full_material_desc, known_keywords, logger):
+        """Track keywords that are not in our predefined lists"""
+        # Split the full description into individual words
+        desc_words = full_material_desc.split()
+        
+        # Check each word against known keywords
+        for word in desc_words:
+            word = word.strip('.,;:!?()[]{}"\'').lower()
+            # If word is not in known keywords and is not empty
+            if word and word not in known_keywords:
+                # Check if it's also not in any of the other keyword lists
+                all_known = (MaterialPropertyInference.METAL_KEYWORDS + 
+                           MaterialPropertyInference.PLASTIC_KEYWORDS + 
+                           MaterialPropertyInference.RUBBER_KEYWORDS + 
+                           MaterialPropertyInference.WOOD_KEYWORDS + 
+                           MaterialPropertyInference.GLASS_KEYWORDS + 
+                           MaterialPropertyInference.SEALANT_KEYWORDS)
+                
+                if word not in all_known:
+                    # This is a truly unknown keyword
+                    MaterialPropertyInference.unknown_keywords.add(word)
+                    if logger:
+                        logger.log(f"🔍 New material keyword detected: '{word}'", "INFO")
     
     @staticmethod
     def _create_metal_properties(mat_term, mat_group):
@@ -242,7 +290,7 @@ class Cinema4DMaterialManager:
         mat.SetName(mat_name)
         
         # Get material properties
-        props = MaterialPropertyInference.infer_material_properties(material_data)
+        props = MaterialPropertyInference.infer_material_properties(material_data, self.logger)
         
         # Set base color
         mat[c4d.MATERIAL_COLOR_COLOR] = props['base_color']
@@ -684,6 +732,9 @@ class Cinema4DImporter:
     
     def build_hierarchy(self, plmxml_parser, doc, mode="assembly"):
         """Build the Cinema 4D scene hierarchy from parsed data"""
+        # Reset unknown keywords tracking for this import
+        MaterialPropertyInference.unknown_keywords.clear()
+        
         self.logger.log("="*80)
         self.logger.log("🏗️  Starting hierarchy building process")
         self.logger.log("="*80)
@@ -729,6 +780,11 @@ class Cinema4DImporter:
         self.logger.log(f"   Total Polygons: {self.total_polygons:,}")
         self.logger.log(f"   Unique Geometries: {unique_geometries}")
         self.logger.log(f"   Memory saved via instancing: {self._calculate_memory_saved(unique_geometries, self.total_files_processed):.1f}%")
+        
+        # Report any new material keywords found
+        if MaterialPropertyInference.unknown_keywords:
+            self.logger.log(f"🔍 New Material Keywords Found: {', '.join(sorted(MaterialPropertyInference.unknown_keywords))}")
+        
         self.logger.log("✅ Hierarchy building completed successfully!")
         self.logger.log("-" * 80)
         
