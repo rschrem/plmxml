@@ -817,10 +817,11 @@ class GeometryInstanceManager:
 class Cinema4DImporter:
     """Hierarchy building and user data management"""
     
-    def __init__(self, logger, material_manager, geometry_manager):
+    def __init__(self, logger, material_manager, geometry_manager, plmxml_path=None):
         self.logger = logger
         self.material_manager = material_manager
         self.geometry_manager = geometry_manager
+        self.plmxml_file_path = plmxml_path  # Store the PLMXML file path for proper path resolution
         self.total_polygons = 0
         self.total_materials = 0
         self.total_files_processed = 0
@@ -833,7 +834,9 @@ class Cinema4DImporter:
         MaterialPropertyInference.unknown_keywords.clear()
         
         # Store the PLMXML file path to help resolve relative JT file paths
-        self.plmxml_file_path = plmxml_file_path
+        # Use the passed parameter or fall back to instance variable
+        self.plmxml_file_path = plmxml_file_path if plmxml_file_path else getattr(self, 'plmxml_file_path', None)
+        self.logger.log(f"📁 PLMXML file path set to: {self.plmxml_file_path}")
         
         self.logger.log("="*80)
         self.logger.log("🏗️  Starting hierarchy building process")
@@ -1076,10 +1079,15 @@ class Cinema4DImporter:
             self._replace_materials_with_closest_match(processing_obj, material_properties, doc)
         
         # Determine the output path for the Redshift proxy
-        plmxml_dir = os.path.dirname(doc.GetDocumentPath()) if doc.GetDocumentPath() else os.path.dirname(jt_path)
+        # Use the PLMXML file directory, not the document directory
+        plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
         # Use .rs extension as intended for Redshift proxies
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(plmxml_dir, proxy_filename)
+        self.logger.log(f"📁 Proxy output path: {proxy_path}")
+        self.logger.log(f"📁 PLMXML directory: {plmxml_dir}")
+        self.logger.log(f"📁 JT path: {jt_path}")
+        self.logger.log(f"📁 Self.plmxml_file_path: {getattr(self, 'plmxml_file_path', 'NOT SET')}")
         
         # Use Redshift's proxy export functionality
         try:
@@ -1298,11 +1306,16 @@ class Cinema4DImporter:
         hidden_container = self.geometry_manager.get_or_create_hidden_container(doc)
         
         # Check if proxy file exists
-        plmxml_dir = os.path.dirname(doc.GetDocumentPath()) if doc.GetDocumentPath() else os.path.dirname(jt_path)
+        # Use the PLMXML file directory, not the document directory
+        plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(plmxml_dir, proxy_filename)
         
         proxy_exists = os.path.exists(proxy_path)
+        self.logger.log(f"📁 Checking for proxy: {proxy_path} (exists: {proxy_exists})")
+        self.logger.log(f"📁 PLMXML directory: {plmxml_dir}")
+        self.logger.log(f"📁 JT path: {jt_path}")
+        self.logger.log(f"📁 Self.plmxml_file_path: {getattr(self, 'plmxml_file_path', 'NOT SET')}")
         
         # Create proxy object (or placeholder if proxy doesn't exist)
         if proxy_exists:
@@ -1532,8 +1545,9 @@ class PLMXMLDialog(gui.GeDialog):
             self.SetBool(self.IDC_MODE_ASSEMBLY, True)
         
         elif id == c4d.DLG_OK:
-            # Get the file path from the edit text
-            self.plmxml_path = self.GetString(self.IDC_FILEPATH)
+            # Get the file path from the edit text if not already set
+            if not self.plmxml_path:
+                self.plmxml_path = self.GetString(self.IDC_FILEPATH)
             if not self.plmxml_path or not os.path.exists(self.plmxml_path):
                 c4d.gui.MessageDialog("Please select a valid PLMXML file.")
                 return True
@@ -1571,7 +1585,7 @@ class PLMXMLDialog(gui.GeDialog):
             plmxml_parser = PLMXMLParser(logger)
             material_manager = Cinema4DMaterialManager(logger)
             geometry_manager = GeometryInstanceManager(logger)
-            importer = Cinema4DImporter(logger, material_manager, geometry_manager)
+            importer = Cinema4DImporter(logger, material_manager, geometry_manager, self.plmxml_path)
             
             # Map mode to string and create proper log file name
             mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies", "assembly"]
