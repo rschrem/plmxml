@@ -1357,11 +1357,15 @@ class Cinema4DImporter:
         hidden_container = self.geometry_manager.get_or_create_hidden_container(doc)
         
         # Check if proxy file exists
-        plmxml_dir = os.path.dirname(doc.GetDocumentPath()) if doc.GetDocumentPath() else os.path.dirname(jt_path)
+        # Use the PLMXML file directory, not the document directory
+        plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
+        self.logger.log(f"📁 PLMXML directory: {plmxml_dir}")
+        self.logger.log(f"📁 JT path: {jt_path}")
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(plmxml_dir, proxy_filename)
         
         proxy_exists = os.path.exists(proxy_path)
+        self.logger.log(f"📁 Checking for proxy: {proxy_path} (exists: {proxy_exists})")
         
         # Create a Null object in the hidden container with the name of the JT file
         # This represents the geometry reference in the hidden tree
@@ -1370,14 +1374,17 @@ class Cinema4DImporter:
             jt_null_obj.SetName(os.path.splitext(os.path.basename(jt_path))[0])
             doc.InsertObject(jt_null_obj)  # Insert into document first
             jt_null_obj.InsertUnder(hidden_container)  # Then under the hidden container
+            self.logger.log(f"📁 Created JT null object: {jt_null_obj.GetName()}")
             
             if proxy_exists:
                 # Proxy file exists, create a Redshift Proxy object as child
+                self.logger.log(f"📁 Proxy file found: {proxy_path}")
                 try:
                     # Try to create a Redshift proxy object
                     import c4d.plugins
                     redshift_plugin = c4d.plugins.FindPlugin(1036223)  # Redshift plugin ID
                     if redshift_plugin:
+                        self.logger.log("✓ Redshift plugin found")
                         rs_proxy_obj = c4d.BaseObject(1036224)  # Redshift Proxy object ID
                         if rs_proxy_obj:
                             # Set the proxy path (just filename, no full path as requested)
@@ -1389,6 +1396,7 @@ class Cinema4DImporter:
                             self.logger.log(f"✓ Redshift proxy object created: {proxy_filename}")
                         else:
                             # If Redshift proxy object creation fails, create placeholder cube
+                            self.logger.log("⚠ Redshift proxy object creation failed, creating placeholder cube")
                             placeholder_cube = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
                             placeholder_cube.SetName("Placeholder_Cube")
                             doc.InsertObject(placeholder_cube)  # Insert into document first
@@ -1396,6 +1404,7 @@ class Cinema4DImporter:
                             self.logger.log(f"🟦 Created placeholder cube for: {proxy_filename}")
                     else:
                         # Redshift not available, create placeholder cube
+                        self.logger.log("⚠ Redshift plugin not found, creating placeholder cube")
                         placeholder_cube = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
                         placeholder_cube.SetName("Placeholder_Cube")
                         doc.InsertObject(placeholder_cube)  # Insert into document first
@@ -1403,6 +1412,7 @@ class Cinema4DImporter:
                         self.logger.log(f"🟦 Redshift unavailable, created placeholder cube: {proxy_filename}")
                 except Exception as e:
                     # Create placeholder cube as fallback
+                    self.logger.log(f"⚠ Exception during Redshift proxy creation: {str(e)}, creating placeholder cube")
                     placeholder_cube = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
                     placeholder_cube.SetName("Placeholder_Cube")
                     doc.InsertObject(placeholder_cube)  # Insert into document first
@@ -1410,6 +1420,7 @@ class Cinema4DImporter:
                     self.logger.log(f"🟦 Fallback placeholder cube created: {proxy_filename}")
             else:
                 # Proxy file doesn't exist, create a 5x5x5 meter cube as placeholder
+                self.logger.log(f"📁 Proxy file not found: {proxy_path}, creating placeholder cube")
                 placeholder_cube = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube (500cm in Cinema 4D units)
                 placeholder_cube.SetName("Placeholder_Cube")
                 doc.InsertObject(placeholder_cube)  # Insert into document first
