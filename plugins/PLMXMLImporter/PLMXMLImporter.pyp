@@ -259,11 +259,8 @@ class Cinema4DMaterialManager:
         # Enable reflection
         mat[c4d.MATERIAL_USE_REFLECTION] = True
         
-        # Remove default reflection layer
+        # Setup reflection using appropriate Cinema 4D API (skip clearing existing layers)
         try:
-            # Clear existing layers
-            mat[c4d.MATERIAL_REFLECTION_LAYER] = c4d.BaseContainer()
-            
             # Add new reflection layer
             layer = mat.AddReflectionLayer()
             if layer:
