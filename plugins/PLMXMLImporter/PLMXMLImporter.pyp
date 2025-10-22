@@ -1388,6 +1388,8 @@ class PLMXMLDialog(gui.GeDialog):
             c4d.gui.MessageDialog(f"Import process failed: {str(e)}\nCheck log for details: {log_path}")
         finally:
             logger.close()
+            # Refresh the Cinema 4D interface to show new materials
+            c4d.EventAdd()
 
 
 class PLMXMLImporter(plugins.CommandData):
