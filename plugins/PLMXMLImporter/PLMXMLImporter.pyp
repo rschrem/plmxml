@@ -275,10 +275,22 @@ class Cinema4DMaterialManager:
         # Create a unique material name based on material properties
         mat_name = self._generate_material_name(material_data)
         
-        # Check if we already have a similar material
+        # Check if we already have a similar material in the current document
+        existing_material_in_doc = self._find_material_in_document(mat_name, doc)
+        if existing_material_in_doc:
+            self.logger.log(f"♻ Reusing existing material in document: {existing_material_in_doc.GetName()}")
+            # Cache this material to avoid recreation
+            self.material_cache[mat_name] = existing_material_in_doc
+            # Get its properties for cache
+            props = self._extract_material_properties(existing_material_in_doc)
+            if props:
+                self.material_properties_cache[mat_name] = props
+            return existing_material_in_doc
+        
+        # Check if we already have a similar material in our cache
         existing_material = self.find_existing_material(material_data, doc)
         if existing_material:
-            self.logger.log(f"♻ Reusing existing material: {existing_material.GetName()}")
+            self.logger.log(f"♻ Reusing cached material: {existing_material.GetName()}")
             return existing_material
         
         # Create a new material
@@ -331,6 +343,10 @@ class Cinema4DMaterialManager:
         # Insert material into the document
         doc.InsertMaterial(mat)
         
+        # Verify the material was actually added to the document
+        if not self._verify_material_in_document(mat.GetName(), doc):
+            self.logger.log(f"⚠ Material may not have been properly added to document: {mat.GetName()}", "WARNING")
+        
         # Cache this material
         self.material_cache[mat_name] = mat
         self.material_properties_cache[mat_name] = props
@@ -338,17 +354,58 @@ class Cinema4DMaterialManager:
         self.logger.log(f"→ Created material: {mat_name}")
         return mat
     
+    def _find_material_in_document(self, mat_name, doc):
+        """Find a material with specific name in the document"""
+        mat = doc.GetFirstMaterial()
+        while mat:
+            if mat.GetName() == mat_name:
+                return mat
+            mat = mat.GetNext()
+        return None
+    
+    def _verify_material_in_document(self, mat_name, doc):
+        """Verify that a material with specific name exists in the document"""
+        mat = doc.GetFirstMaterial()
+        while mat:
+            if mat.GetName() == mat_name:
+                return True
+            mat = mat.GetNext()
+        return False
+    
+    def _extract_material_properties(self, mat):
+        """Extract material properties from an existing material"""
+        # This is a simplified property extraction - in a real implementation 
+        # you might want to extract more properties
+        props = {
+            'base_color': mat[c4d.MATERIAL_COLOR_COLOR] if mat[c4d.MATERIAL_COLOR_COLOR] else c4d.Vector(0.5, 0.5, 0.5),
+            'metalness': 0.0,  # Would need to calculate from reflections in a real implementation
+            'roughness': 0.4,  # Default value
+            'ior': 1.4,
+            'transparency': 0.0
+        }
+        return props
+    
     def find_existing_material(self, material_data, doc):
-        """Find existing similar material using two-pass matching system"""
+        """Find existing similar material using document and cache checking"""
         # Generate the name for the new material
         new_mat_name = self._generate_material_name(material_data)
         
-        # Pass 1: Exact Name Match
+        # First, check if there's already a material with this exact name in the document
+        existing_in_doc = self._find_material_in_document(new_mat_name, doc)
+        if existing_in_doc:
+            # Cache it and return it
+            self.material_cache[new_mat_name] = existing_in_doc
+            props = self._extract_material_properties(existing_in_doc)
+            if props:
+                self.material_properties_cache[new_mat_name] = props
+            return existing_in_doc
+        
+        # Pass 1: Check in our material cache for exact name match
         if new_mat_name in self.material_cache:
             return self.material_cache[new_mat_name]
         
-        # Pass 2: Base Type Grouping (more complex similarity matching)
-        new_props = MaterialPropertyInference.infer_material_properties(material_data)
+        # Pass 2: Check for similarity in our cache
+        new_props = MaterialPropertyInference.infer_material_properties(material_data, self.logger)
         new_base_type = new_mat_name.split('_')[0] if '_' in new_mat_name else new_mat_name
         
         for mat_name, cached_mat in self.material_cache.items():
@@ -364,6 +421,30 @@ class Cinema4DMaterialManager:
             cached_props = self.material_properties_cache[mat_name]
             if self._materials_are_similar(new_props, cached_props):
                 return cached_mat
+        
+        # Pass 3: Check for similar materials already in the document
+        doc_mat = doc.GetFirstMaterial()
+        while doc_mat:
+            doc_mat_name = doc_mat.GetName()
+            if doc_mat_name in self.material_properties_cache:
+                # We've already analyzed this material
+                cached_props = self.material_properties_cache[doc_mat_name]
+                if self._materials_are_similar(new_props, cached_props):
+                    # Cache this material for future use
+                    self.material_cache[doc_mat_name] = doc_mat
+                    return doc_mat
+            else:
+                # Check if this document material has a similar name pattern
+                doc_base_type = doc_mat_name.split('_')[0] if '_' in doc_mat_name else doc_mat_name
+                if new_base_type.lower() == doc_base_type.lower():
+                    # Extract properties to compare
+                    doc_props = self._extract_material_properties(doc_mat)
+                    if doc_props and self._materials_are_similar(new_props, doc_props):
+                        # Cache this material for future use
+                        self.material_cache[doc_mat_name] = doc_mat
+                        self.material_properties_cache[doc_mat_name] = doc_props
+                        return doc_mat
+            doc_mat = doc_mat.GetNext()
         
         return None
     
