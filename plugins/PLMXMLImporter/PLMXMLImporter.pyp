@@ -833,6 +833,7 @@ class Cinema4DImporter:
         MaterialPropertyInference.unknown_keywords.clear()
         
         # Store the PLMXML file path to help resolve relative JT file paths
+        # All .plmxml, .stpx, .c4d, .jt, and .rs files are in the same folder
         self.plmxml_path = plmxml_file_path
         
         self.logger.log("="*80)
@@ -1357,11 +1358,15 @@ class Cinema4DImporter:
         hidden_container = self.geometry_manager.get_or_create_hidden_container(doc)
         
         # Check if proxy file exists
-        # Use the PLMXML file directory, not the document directory
+        # Since all files are in the same directory, we can use the PLMXML directory
+        # All .plmxml, .stpx, .c4d, .jt, and .rs files are in the same folder
         plmxml_dir = os.path.dirname(self.plmxml_path) if hasattr(self, 'plmxml_path') and self.plmxml_path else os.path.dirname(jt_path)
-        self.logger.log(f"📁 PLMXML directory: {plmxml_dir}")
+        self.logger.log(f"📁 Common directory for all files: {plmxml_dir}")
         self.logger.log(f"📁 JT path: {jt_path}")
         self.logger.log(f"📁 Self.plmxml_path: {getattr(self, 'plmxml_path', 'NOT SET')}")
+        
+        # Since all files are in the same directory, construct proxy path simply
+        # All .plmxml, .stpx, .c4d, .jt, and .rs files are in the same folder
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(plmxml_dir, proxy_filename)
         
@@ -1386,18 +1391,27 @@ class Cinema4DImporter:
                     redshift_plugin = c4d.plugins.FindPlugin(1036223)  # Redshift plugin ID
                     if redshift_plugin:
                         self.logger.log("✓ Redshift plugin found")
-                        rs_proxy_obj = c4d.BaseObject(1036224)  # Redshift Proxy object ID
-                        if rs_proxy_obj:
-                            # Set the proxy path (just filename, no full path as requested)
-                            rs_proxy_obj[c4d.REDSHIFT_PROXY_PATH] = os.path.basename(proxy_filename)  # Just filename, not full path
-                            rs_proxy_obj[c4d.REDSHIFT_PROXY_MODE] = 0  # Reference mode
-                            rs_proxy_obj.SetName(os.path.splitext(os.path.basename(jt_path))[0] + "_RS_Proxy")
-                            doc.InsertObject(rs_proxy_obj)  # Insert into document first
-                            rs_proxy_obj.InsertUnder(jt_null_obj)  # Child of the JT null object
-                            self.logger.log(f"✓ Redshift proxy object created: {proxy_filename}")
-                        else:
+                        # Use the proper Redshift proxy object creation method
+                        try:
+                            rs_proxy_obj = c4d.BaseObject(1038649)  # Redshift Proxy Object plugin ID (com.redshift3d.redshift4c4d.proxyloader)
+                            if rs_proxy_obj:
+                                # Set the proxy file path (just filename since all files are in same directory)
+                                rs_proxy_obj[c4d.REDSHIFT_PROXY_FILE] = os.path.basename(proxy_filename)  # Just filename
+                                rs_proxy_obj.SetName(os.path.splitext(os.path.basename(jt_path))[0] + "_RS_Proxy")
+                                doc.InsertObject(rs_proxy_obj)  # Insert into document first
+                                rs_proxy_obj.InsertUnder(jt_null_obj)  # Child of the JT null object
+                                self.logger.log(f"✓ Redshift proxy object created: {proxy_filename}")
+                            else:
+                                # If Redshift proxy object creation fails, create placeholder cube
+                                self.logger.log("⚠ Redshift proxy object creation returned None, creating placeholder cube")
+                                placeholder_cube = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
+                                placeholder_cube.SetName("Placeholder_Cube")
+                                doc.InsertObject(placeholder_cube)  # Insert into document first
+                                placeholder_cube.InsertUnder(jt_null_obj)
+                                self.logger.log(f"🟦 Created placeholder cube for: {proxy_filename}")
+                        except Exception as e:
                             # If Redshift proxy object creation fails, create placeholder cube
-                            self.logger.log("⚠ Redshift proxy object creation failed, creating placeholder cube")
+                            self.logger.log(f"⚠ Redshift proxy creation failed: {str(e)}, creating placeholder cube")
                             placeholder_cube = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
                             placeholder_cube.SetName("Placeholder_Cube")
                             doc.InsertObject(placeholder_cube)  # Insert into document first

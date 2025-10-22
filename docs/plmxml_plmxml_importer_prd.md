@@ -222,15 +222,18 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Comprehensive Logging**: Detailed logging for troubleshooting and debugging
 
 ### 8.7 Redshift Proxy Compilation Workflow (Step 3 Implementation)
+- **Single Directory Requirement**: All files (.plmxml, .stpx, .c4d, .jt, .rs) are in the same directory
 - **Hidden Geometry Container**: Create `_PLMXML_Geometries` null object to contain all geometry references
 - **Per-JT File Nodes**: Create null objects named after each JT file directly under `_PLMXML_Geometries`
-- **Conditional Proxy Creation**: Check if `.rs` proxy files exist in PLMXML directory
-- **Redshift Proxy Objects**: Create Redshift Proxy objects as children with just filename (no path)
+- **Conditional Proxy Creation**: Check if `.rs` proxy files exist in same directory as PLMXML file
+- **Redshift Proxy Objects**: Create Redshift Proxy objects using proper plugin ID (1038649) with just filename (no path)
 - **Placeholder Cubes**: Create 5×5×5 meter cubes as fallback when `.rs` files are missing
 - **Assembly Recreation**: Recreate original hierarchy using instance references to `_PLMXML_Geometries` nodes
-- **Proper Path Resolution**: Use PLMXML file directory for resolving relative `.rs` file paths
+- **Simplified Path Resolution**: No complex path resolution needed since all files are co-located
 - **Instance Management**: Maintain transforms and relationships through instance references
 - **Document Structure**: Preserve parent-child relationships from original PLMXML structure
+- **Proper Redshift API**: Use `c4d.REDSHIFT_PROXY_FILE` parameter for proper proxy file assignment
+- **Redshift Plugin ID**: Use 1038649 (com.redshift3d.redshift4c4d.proxyloader) for proper plugin identification
 
 ### 8.8 Version Information
 - **Current Version**: 3.1 (updated from initial 3.0)
