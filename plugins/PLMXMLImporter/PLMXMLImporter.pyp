@@ -1033,8 +1033,8 @@ class Cinema4DImporter:
             self.total_files_processed += 1
             return
         
-        # Count polygons in loaded geometry
-        total_polygons = self._count_polygons_in_document(temp_doc)
+        # Count polygons in loaded geometry using the geometry manager
+        total_polygons = self.geometry_manager._count_polygons_in_document(temp_doc)
         self.logger.log(f"📊 Polygons in {os.path.basename(jt_path)}: {total_polygons:,}")
         
         # Get the geometry from the temp document - handle multiple objects if present
