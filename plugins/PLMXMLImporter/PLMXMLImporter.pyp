@@ -1193,7 +1193,7 @@ class Cinema4DImporter:
                 
             bc[c4d.DESC_NAME] = key
             bc[c4d.DESC_SHORT_NAME] = key
-            bc[c4d.DESC_ANIMATE] = c4d.DESC_ANIM_OFF
+            bc[c4d.DESC_ANIMATE] = 0  # Turn off animation for user data
             bc[c4d.DESC_SHADERLINKFLAG] = False
             
             # Add the user data to the object
