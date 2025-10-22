@@ -60,15 +60,27 @@ Create a robust, efficient, and reliable solution for importing complex PLMXML a
 ### 3.3 Functional Requirements
 
 #### 3.3.1 Import Modes
-- **FR-001**: Plugin shall support three distinct operation modes: Material Extraction, Redshift Proxy Creation, and Assembly Compilation
+- **FR-001**: Plugin shall support four distinct operation modes: Material Extraction, Redshift Proxy Creation, Redshift Proxy Compilation, and Assembly Compilation
 - **FR-002**: Plugin shall present a radio button dialog at startup to select the operation mode
-- **FR-003**: Plugin shall maintain separate execution paths for each mode
+- **FR-003**: Plugin shall maintain separate execution paths for each mode with specific functionality
 
 #### 3.3.2 Material System
 - **FR-004**: Plugin shall infer material properties from keywords in material data
 - **FR-005**: Plugin shall create PBR-compatible materials based on detected material types
 - **FR-006**: Plugin shall implement material deduplication with tolerance-based matching
 - **FR-007**: Plugin shall support Metal, Plastic, Rubber, Wood, Glass, and Sealant material types
+
+#### 3.3.3 Redshift Proxy Compilation (Step 3)
+- **FR-008**: Plugin shall create a hidden container named `_PLMXML_Geometries` to hold all geometry references
+- **FR-009**: Plugin shall create null objects named after each JT file directly under `_PLMXML_Geometries`
+- **FR-010**: Plugin shall check for existence of `.rs` proxy files in the same directory as the PLMXML file
+- **FR-011**: Plugin shall create Redshift Proxy objects as children of JT null objects when `.rs` files exist
+- **FR-012**: Plugin shall use only the filename (no path) in Redshift Proxy object `REDSHIFT_PROXY_PATH` parameter
+- **FR-013**: Plugin shall create 5×5×5 meter placeholder cubes as children when `.rs` files don't exist
+- **FR-014**: Plugin shall recreate the original PLMXML hierarchy in the Assembly root
+- **FR-015**: Plugin shall use instance references to the appropriate Null Object nodes in `_PLMXML_Geometries` tree
+- **FR-016**: Plugin shall maintain parent-child relationships from the original PLMXML structure
+- **FR-017**: Plugin shall properly resolve relative paths using the PLMXML file directory
 
 #### 3.3.3 Geometry Handling
 - **FR-008**: Plugin shall implement geometry instancing to optimize memory usage
@@ -209,6 +221,17 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Fallback Strategies**: Multiple strategies for material reuse and creation
 - **Comprehensive Logging**: Detailed logging for troubleshooting and debugging
 
-### 8.7 Version Information
+### 8.7 Redshift Proxy Compilation Workflow (Step 3 Implementation)
+- **Hidden Geometry Container**: Create `_PLMXML_Geometries` null object to contain all geometry references
+- **Per-JT File Nodes**: Create null objects named after each JT file directly under `_PLMXML_Geometries`
+- **Conditional Proxy Creation**: Check if `.rs` proxy files exist in PLMXML directory
+- **Redshift Proxy Objects**: Create Redshift Proxy objects as children with just filename (no path)
+- **Placeholder Cubes**: Create 5×5×5 meter cubes as fallback when `.rs` files are missing
+- **Assembly Recreation**: Recreate original hierarchy using instance references to `_PLMXML_Geometries` nodes
+- **Proper Path Resolution**: Use PLMXML file directory for resolving relative `.rs` file paths
+- **Instance Management**: Maintain transforms and relationships through instance references
+- **Document Structure**: Preserve parent-child relationships from original PLMXML structure
+
+### 8.8 Version Information
 - **Current Version**: 3.1 (updated from initial 3.0)
-- **Major Improvements**: Material verification and reuse, keyword detection, API compatibility fixes, dialog improvements
+- **Major Improvements**: Material verification and reuse, keyword detection, API compatibility fixes, dialog improvements, Redshift proxy compilation workflow
