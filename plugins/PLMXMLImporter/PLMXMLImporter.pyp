@@ -204,8 +204,8 @@ class MaterialPropertyInference:
         """Create properties for rubber/elastomer materials"""
         return {
             'base_color': c4d.Vector(0.10, 0.10, 0.10),
-            'metalness': 0.0,
-            'roughness': 0.9,
+            'metalness': 0.0,  # Should definitely be 0.0 for rubber
+            'roughness': 0.9,  # High roughness for matte rubber appearance
             'ior': 1.52,
             'transparency': 0.0
         }
@@ -333,11 +333,26 @@ class Cinema4DMaterialManager:
                     mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = props['base_color']
                     mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS] = props['roughness']
                     mat[layer_id + c4d.REFLECTION_LAYER_MAIN_SHADER] = 0  # Standard
+                    # For metals, set fresnel to conductor mode if supported
+                    try:
+                        mat[layer_id + c4d.REFLECTION_LAYER_MAIN_FRESNEL_MODE] = 1  # Conductor
+                    except:
+                        pass  # Some versions don't support this parameter
                 else:
-                    # Non-metallic material
-                    mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = c4d.Vector(1, 1, 1)
+                    # Non-metallic material - keep reflections subtle and colorless
+                    mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = c4d.Vector(1, 1, 1)  # White reflection
                     mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS] = props['roughness']
                     mat[layer_id + c4d.REFLECTION_LAYER_MAIN_SHADER] = 0  # Standard
+                    # For non-metals, use dielectric fresnel (default)
+                    try:
+                        mat[layer_id + c4d.REFLECTION_LAYER_MAIN_FRESNEL_MODE] = 0  # Dielectric
+                    except:
+                        pass  # Some versions don't support this parameter
+                    
+                    # For rubber/elastomer materials with high roughness, reflections should be very subtle
+                    if props['roughness'] > 0.7:
+                        # Reduce reflection strength for very rough materials
+                        mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION] = 0.1  # Lower reflection strength
         except Exception as e:
             self.logger.log(f"Reflection layer setup error: {str(e)}", "WARNING")
         
@@ -966,8 +981,14 @@ class Cinema4DImporter:
         # Check if Redshift is available
         try:
             import c4d.plugins
-            redshift_plugin_id = 1036223  # Redshift plugin ID
-            redshift_plugin = c4d.plugins.FindPlugin(redshift_plugin_id)
+            # Redshift plugin ID may vary by version, try the most common one
+            redshift_plugin_ids = [1036223, 1001059]  # Common Redshift plugin IDs
+            redshift_plugin = None
+            
+            for plugin_id in redshift_plugin_ids:
+                redshift_plugin = c4d.plugins.FindPlugin(plugin_id)
+                if redshift_plugin is not None:
+                    break
             
             if redshift_plugin is None:
                 self.logger.log("⚠ Redshift not found, skipping proxy creation", "WARNING")
