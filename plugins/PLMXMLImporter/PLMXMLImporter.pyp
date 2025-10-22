@@ -827,10 +827,13 @@ class Cinema4DImporter:
         self.files_since_last_save = 0
         self.save_interval = 5  # Save every 5 files
     
-    def build_hierarchy(self, plmxml_parser, doc, mode="assembly"):
+    def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None):
         """Build the Cinema 4D scene hierarchy from parsed data"""
         # Reset unknown keywords tracking for this import
         MaterialPropertyInference.unknown_keywords.clear()
+        
+        # Store the PLMXML file path to help resolve relative JT file paths
+        self.plmxml_file_path = plmxml_file_path
         
         self.logger.log("="*80)
         self.logger.log("🏗️  Starting hierarchy building process")
@@ -924,9 +927,14 @@ class Cinema4DImporter:
             jt_transform = jt_data['transform']
             material_properties = jt_data['material_properties']
             
-            # Get full path to JT file (assuming it's relative to PLMXML file)
-            plmxml_dir = os.path.dirname(doc.GetDocumentPath()) if doc.GetDocumentPath() else ""
-            jt_full_path = os.path.join(plmxml_dir, jt_file) if plmxml_dir else jt_file
+            # Get full path to JT file (relative to PLMXML file directory)
+            if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path:
+                plmxml_dir = os.path.dirname(self.plmxml_file_path)
+                jt_full_path = os.path.join(plmxml_dir, jt_file)
+            else:
+                # Fallback to document path if PLMXML path not available
+                plmxml_dir = os.path.dirname(doc.GetDocumentPath()) if doc.GetDocumentPath() else ""
+                jt_full_path = os.path.join(plmxml_dir, jt_file) if plmxml_dir else jt_file
             
             # Mode-specific processing
             if mode == "material_extraction":
@@ -1532,7 +1540,7 @@ class PLMXMLDialog(gui.GeDialog):
                 return
             
             # Build hierarchy based on selected mode
-            success = importer.build_hierarchy(plmxml_parser, doc, mode_name)
+            success = importer.build_hierarchy(plmxml_parser, doc, mode_name, self.plmxml_path)
             
             if success:
                 logger.log(f"🎉 Import completed successfully using mode: {mode_name}")
