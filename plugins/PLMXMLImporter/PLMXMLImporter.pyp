@@ -1088,69 +1088,53 @@ class Cinema4DImporter:
             proxy_obj_clone = processing_obj.GetClone(c4d.COPYFLAGS_0)
             proxy_doc.InsertObject(proxy_obj_clone)
             
-            # In Cinema 4D 2025, the command 1038650 is for "RS Proxy (*.rs)" export
-            # Since SaveDocument might not have a direct RS format, we'll try using the command approach
-            # First, save the proxy document to a temporary location and then convert it
+            # In Cinema 4D 2025, we need to save Redshift proxies without user interaction
+            # The command 1038650 prompts user for file location, so we'll use SaveDocument instead
             
-            # Save the proxy document to the .rs path directly
-            # Check if there's an RS format for SaveDocument in Cinema 4D 2025
+            # First, check if there's a specific RS format for SaveDocument in Cinema 4D 2025
             rs_format_id = getattr(c4d, 'FORMAT_RS', None)
+            
             if rs_format_id:
                 # Try to save directly as RS format if it's available
                 if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, rs_format_id):
                     self.logger.log(f"✓ Redshift proxy exported to: {proxy_path}")
                 else:
-                    # If direct RS save fails, try the command approach
-                    # Store original document to restore later
-                    original_doc = c4d.documents.GetActiveDocument()
-                    
-                    try:
-                        # Set our proxy document as the active document
-                        c4d.documents.SetActiveDocument(proxy_doc)
-                        
-                        # Call the Redshift proxy command which should save it as .rs
-                        success_call = c4d.CallCommand(1038650)  # RS Proxy (*.rs)
-                        
-                        if success_call:
-                            self.logger.log(f"✓ Redshift proxy exported via command to: {proxy_path}")
-                        else:
-                            self.logger.log(f"⚠ Command approach failed for {proxy_path}, trying .c4d fallback", "WARNING")
-                            # Fallback: save as .c4d if the command fails
-                            proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
-                            if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
-                                self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
-                                self.logger.log(f"ℹ For Redshift use: Convert {os.path.basename(proxy_c4d_path)} to {os.path.basename(proxy_path)} manually")
-                            else:
-                                self.logger.log(f"✗ Failed to save proxy file for: {jt_path}", "ERROR")
-                    finally:
-                        # Always restore the original active document
-                        if original_doc:
-                            c4d.documents.SetActiveDocument(original_doc)
-            else:
-                # No direct RS format available, try the command approach
-                original_doc = c4d.documents.GetActiveDocument()
-                
-                try:
-                    # Set our proxy document as the active document
-                    c4d.documents.SetActiveDocument(proxy_doc)
-                    
-                    # Call the Redshift proxy command
-                    success_call = c4d.CallCommand(1038650)  # RS Proxy (*.rs)
-                    
-                    if success_call:
-                        self.logger.log(f"✓ Redshift proxy exported via command to: {proxy_path}")
+                    self.logger.log(f"⚠ Direct RS format save failed for {proxy_path}, trying .c4d fallback", "WARNING")
+                    # Fallback: save as .c4d if the RS format save fails
+                    proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
+                    if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
+                        self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
+                        self.logger.log(f"ℹ For Redshift use: Convert {os.path.basename(proxy_c4d_path)} to {os.path.basename(proxy_path)} manually or use Redshift proxy conversion")
                     else:
-                        # Fallback: save as .c4d if the command fails
-                        proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
-                        if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
-                            self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
-                            self.logger.log(f"ℹ For Redshift use: Convert {os.path.basename(proxy_c4d_path)} to {os.path.basename(proxy_path)} manually")
-                        else:
-                            self.logger.log(f"✗ Failed to save proxy file for: {jt_path}", "ERROR")
-                finally:
-                    # Always restore the original active document
-                    if original_doc:
-                        c4d.documents.SetActiveDocument(original_doc)
+                        self.logger.log(f"✗ Failed to save proxy file for: {jt_path}", "ERROR")
+            else:
+                # No direct RS format available in this Cinema 4D version
+                # Check if there are other Redshift-specific format IDs we can use
+                # Try common Redshift format IDs that might be available
+                redshift_formats = [
+                    getattr(c4d, 'FORMAT_REDSHIFT_PROXY', 0),
+                    getattr(c4d, 'FORMAT_REDSHIFT_RS', 0),
+                    1036224  # Common Redshift proxy format ID
+                ]
+                
+                saved_successfully = False
+                for format_id in redshift_formats:
+                    if format_id and format_id != 0:
+                        if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
+                            self.logger.log(f"✓ Redshift proxy exported to: {proxy_path}")
+                            saved_successfully = True
+                            break
+                
+                if not saved_successfully:
+                    # If no Redshift format worked, fall back to saving as .c4d
+                    # This .c4d file can be manually converted to .rs in Redshift
+                    self.logger.log(f"ℹ Redshift format not available, saving as .c4d for manual proxy conversion", "INFO")
+                    proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
+                    if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
+                        self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
+                        self.logger.log(f"ℹ For Redshift proxy: Load {os.path.basename(proxy_c4d_path)} in Cinema 4D and use Redshift's proxy creation tools")
+                    else:
+                        self.logger.log(f"✗ Failed to save proxy file for: {jt_path}", "ERROR")
         
         except Exception as e:
             self.logger.log(f"✗ Error creating Redshift proxy: {str(e)}", "ERROR")
