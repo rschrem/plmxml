@@ -1250,7 +1250,8 @@ class PLMXMLDialog(gui.GeDialog):
         # File selection
         self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2)
         self.AddStaticText(0, c4d.BFH_LEFT, name="PLMXML File:")
-        self.AddEditText(self.IDC_FILEPATH, c4d.BFH_SCALEFIT, init_string="")
+        self.AddEditText(self.IDC_FILEPATH, c4d.BFH_SCALEFIT)
+        self.SetString(self.IDC_FILEPATH, "")  # Set initial string value
         self.GroupEnd()
         
         self.GroupBegin(0, c4d.BFH_LEFT, cols=1)
