@@ -166,3 +166,10 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 3. Instance optimization system
 4. User interface and workflow implementation
 5. Comprehensive testing and validation
+
+## 8. Technical Implementation Notes
+
+### 8.1 Cinema 4D 2025 Specifics
+- Redshift proxy export: In Cinema 4D 2025 (needs to be checked in future versions of Cinema 4D as this might change), command ID `1038650` saves the currently active document as a Redshift proxy: `c4d.CallCommand(1038650) # RS Proxy (*.rs)`
+- This command must be called with the document containing only the object to be exported as the active document
+- The command saves the file to the user's default location, so the proxy path needs to be set separately
