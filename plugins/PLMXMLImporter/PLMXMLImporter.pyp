@@ -833,7 +833,7 @@ class Cinema4DImporter:
         MaterialPropertyInference.unknown_keywords.clear()
         
         # Store the PLMXML file path to help resolve relative JT file paths
-        self.plmxml_file_path = plmxml_file_path
+        self.plmxml_path = plmxml_file_path
         
         self.logger.log("="*80)
         self.logger.log("🏗️  Starting hierarchy building process")
@@ -928,8 +928,8 @@ class Cinema4DImporter:
             material_properties = jt_data['material_properties']
             
             # Get full path to JT file (relative to PLMXML file directory)
-            if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path:
-                plmxml_dir = os.path.dirname(self.plmxml_file_path)
+            if hasattr(self, 'plmxml_path') and self.plmxml_path:
+                plmxml_dir = os.path.dirname(self.plmxml_path)
                 jt_full_path = os.path.join(plmxml_dir, jt_file)
             else:
                 # Fallback to document path if PLMXML path not available
@@ -1082,7 +1082,7 @@ class Cinema4DImporter:
         
         # Determine the output path for the Redshift proxy
         # Use the PLMXML file directory, not the active document directory
-        plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
+        plmxml_dir = os.path.dirname(self.plmxml_path) if hasattr(self, 'plmxml_path') and self.plmxml_path else os.path.dirname(jt_path)
         # Use .rs extension as intended for Redshift proxies
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(plmxml_dir, proxy_filename)
@@ -1358,9 +1358,10 @@ class Cinema4DImporter:
         
         # Check if proxy file exists
         # Use the PLMXML file directory, not the document directory
-        plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
+        plmxml_dir = os.path.dirname(self.plmxml_path) if hasattr(self, 'plmxml_path') and self.plmxml_path else os.path.dirname(jt_path)
         self.logger.log(f"📁 PLMXML directory: {plmxml_dir}")
         self.logger.log(f"📁 JT path: {jt_path}")
+        self.logger.log(f"📁 Self.plmxml_path: {getattr(self, 'plmxml_path', 'NOT SET')}")
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(plmxml_dir, proxy_filename)
         
