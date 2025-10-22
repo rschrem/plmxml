@@ -593,6 +593,18 @@ class GeometryInstanceManager:
         self.logger.log(f"✓ Geometry loaded successfully: {os.path.basename(jt_path)}")
         return cloned_obj
     
+    def _perform_incremental_save(self, doc):
+        """Perform incremental save to prevent data loss during long processing"""
+        try:
+            # Use Cinema 4D's built-in "Save Incremental" command
+            # Command ID: 12098 - Save Incremental
+            c4d.CallCommand(12098)
+            self.logger.log("💾 Incremental save completed")
+            return True
+        except Exception as e:
+            self.logger.log(f"⚠ Incremental save failed: {str(e)}", "WARNING")
+            return False
+    
     def _create_placeholder_cube(self):
         """Create a 10m cube placeholder for missing JT files"""
         cube = c4d.BaseObject(c4d.Ocube)
@@ -644,6 +656,20 @@ class GeometryInstanceManager:
         doc.InsertObject(instance)
         
         return instance
+    
+    def _count_polygons_in_object(self, obj):
+        """Count polygons in a single object and its children"""
+        count = 0
+        if obj and obj.GetType() == c4d.Opolygon:
+            count += obj.GetPolygonCount()
+        
+        # Count polygons in children
+        child = obj.GetDown()
+        while child:
+            count += self._count_polygons_in_object(child)
+            child = child.GetNext()
+        
+        return count
 
 
 class Cinema4DImporter:
@@ -656,6 +682,8 @@ class Cinema4DImporter:
         self.total_polygons = 0
         self.total_materials = 0
         self.total_files_processed = 0
+        self.files_since_last_save = 0
+        self.save_interval = 5  # Save every 5 files
     
     def build_hierarchy(self, plmxml_parser, doc, mode="assembly"):
         """Build the Cinema 4D scene hierarchy from parsed data"""
@@ -689,13 +717,21 @@ class Cinema4DImporter:
         # Update UI to reflect changes
         c4d.EventAdd()
         
+        # Calculate final statistics
+        unique_geometries = len(self.geometry_manager.geometry_cache)
+        
+        # Get total polygons across all loaded geometry
+        for cached_geo in self.geometry_manager.geometry_cache.values():
+            self.total_polygons += self.geometry_manager._count_polygons_in_object(cached_geo)
+        
         # Log final statistics
         self.logger.log("-" * 80)
         self.logger.log(f"📊 Final Statistics:")
         self.logger.log(f"   Files Processed: {self.total_files_processed}")
         self.logger.log(f"   Total Materials: {self.total_materials:,}")
         self.logger.log(f"   Total Polygons: {self.total_polygons:,}")
-        self.logger.log(f"   Unique Geometries: {len(self.geometry_manager.geometry_cache)}")
+        self.logger.log(f"   Unique Geometries: {unique_geometries}")
+        self.logger.log(f"   Memory saved via instancing: {self._calculate_memory_saved(unique_geometries, self.total_files_processed):.1f}%")
         self.logger.log("✅ Hierarchy building completed successfully!")
         self.logger.log("-" * 80)
         
@@ -749,6 +785,9 @@ class Cinema4DImporter:
             elif mode == "create_redshift_proxies":
                 # Create redshift proxies
                 self._process_redshift_proxy_creation(jt_full_path, null_obj, material_properties, doc)
+            elif mode == "compile_redshift_proxies":
+                # Compile assembly using existing redshift proxies
+                self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc)
             else:
                 # Default: load geometry and create instances
                 self._process_geometry_loading(jt_full_path, jt_transform, material_properties, null_obj, doc)
@@ -775,6 +814,15 @@ class Cinema4DImporter:
                 self.total_materials += 1
         
         self.total_files_processed += 1
+        
+        # Increment files since last save counter
+        self.files_since_last_save += 1
+        
+        # Perform incremental save if needed
+        if self.files_since_last_save >= self.save_interval:
+            self.logger.log("⏳ Performing incremental save...")
+            self._perform_incremental_save(doc)
+            self.files_since_last_save = 0  # Reset counter
     
     def _process_redshift_proxy_creation(self, jt_path, parent_obj, material_properties, doc):
         """Process redshift proxy creation"""
@@ -825,16 +873,43 @@ class Cinema4DImporter:
         total_polygons = self._count_polygons_in_document(temp_doc)
         self.logger.log(f"📊 Polygons in {os.path.basename(jt_path)}: {total_polygons:,}")
         
-        # Get the geometry from the temp document
+        # Get the geometry from the temp document - handle multiple objects if present
         temp_obj = temp_doc.GetFirstObject()
         if temp_obj is None:
             self.logger.log(f"⚠ No geometry found in JT file: {jt_path}", "WARNING")
             self.total_files_processed += 1
             return
         
+        # Handle multiple root objects by creating a container if needed
+        root_objects = []
+        current_obj = temp_doc.GetFirstObject()
+        while current_obj:
+            root_objects.append(current_obj)
+            current_obj = current_obj.GetNext()
+        
+        # If multiple root objects exist, create a container; otherwise use the single object
+        if len(root_objects) > 1:
+            # Create a container null for multiple objects
+            container = c4d.BaseObject(c4d.Onull)
+            container.SetName(os.path.splitext(os.path.basename(jt_path))[0] + "_Container")
+            
+            # Move all root objects under the container
+            for obj in root_objects:
+                obj.Remove()  # Remove from document temporarily
+                obj.InsertUnder(container)  # Insert under container
+            
+            # Insert the container under parent
+            container.InsertUnder(parent_obj)
+            processing_obj = container
+        else:
+            # Single object case - move it to the main document
+            temp_obj.Remove()  # Remove from temp document
+            temp_obj.InsertUnder(parent_obj)  # Insert under parent
+            processing_obj = temp_obj
+        
         # If we have material properties, try to match closest material in the current scene
         if material_properties:
-            self._replace_materials_with_closest_match(temp_obj, material_properties, doc)
+            self._replace_materials_with_closest_match(processing_obj, material_properties, doc)
         
         # Determine the output path for the Redshift proxy
         plmxml_dir = os.path.dirname(doc.GetDocumentPath()) if doc.GetDocumentPath() else os.path.dirname(jt_path)
@@ -843,50 +918,42 @@ class Cinema4DImporter:
         
         # Use Redshift's proxy export functionality
         try:
-            # Insert the geometry into the main document temporarily for export
-            temp_obj.InsertUnder(parent_obj)  # Insert temporarily under parent for export context
+            # Create a temporary document with just the object for clean proxy export
+            proxy_doc = c4d.documents.BaseDocument()
+            proxy_obj_clone = processing_obj.GetClone(c4d.COPYFLAGS_0)
+            proxy_doc.InsertObject(proxy_obj_clone)
             
-            # Export as Redshift proxy
-            # For Redshift proxy export, we might need to use the Redshift proxy object directly
-            proxy_obj = c4d.BaseObject(1036224)  # Redshift Proxy object ID
-            if proxy_obj:
-                proxy_obj[c4d.REDSHIFT_PROXY_PATH] = proxy_path
-                proxy_obj[c4d.REDSHIFT_PROXY_MODE] = 0  # Reference mode
-                doc.InsertObject(proxy_obj)
-                
-                # Set the geometry to the proxy
-                proxy_obj.InsertUnder(temp_obj)
-                
-                # Export the proxy file
-                c4d.CallCommand(1036225)  # Could be an export command
+            # Try to use Redshift proxy creation command
+            # Save using Cinema 4D's Redshift proxy functionality
+            import os
+            if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, 1036224):  # Redshift proxy format
                 self.logger.log(f"✓ Redshift proxy exported to: {proxy_path}")
             else:
-                # Fallback: Try to export the geometry directly using Cinema 4D's capabilities
-                # Since we don't have exact Redshift proxy export commands, we'll save the temp object
-                # as a Cinema 4D file that can later be referenced as a proxy
+                # Alternative: Try saving as .c4d file which Redshift can reference
                 proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
-                
-                # Create a new document for just this object
-                proxy_doc = c4d.documents.BaseDocument()
-                proxy_obj_clone = temp_obj.GetClone(c4d.COPYFLAGS_0)
-                proxy_doc.InsertObject(proxy_obj_clone)
-                
-                # Save the document
-                c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT)
-                self.logger.log(f"✓ Object saved as potential proxy: {proxy_c4d_path}")
+                if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
+                    self.logger.log(f"✓ Object saved as .c4d proxy: {proxy_c4d_path}")
+                else:
+                    self.logger.log(f"✗ Failed to save proxy file for: {jt_path}", "ERROR")
         
         except Exception as e:
             self.logger.log(f"✗ Error creating Redshift proxy: {str(e)}", "ERROR")
         
-        # Clean up: remove the temporary object from the document
-        if temp_obj.GetUp() or temp_obj.GetNext() or temp_obj.GetDown():
-            temp_obj.Remove()
-        
         # Clean up the temporary document
         temp_doc = None  # Allow garbage collection
+        proxy_doc = None  # Allow garbage collection
         
         self.logger.log(f"✓ Redshift proxy created for: {os.path.basename(jt_path)}")
         self.total_files_processed += 1
+        
+        # Increment files since last save counter
+        self.files_since_last_save += 1
+        
+        # Perform incremental save if needed
+        if self.files_since_last_save >= self.save_interval:
+            self.logger.log("⏳ Performing incremental save...")
+            self._perform_incremental_save(doc)
+            self.files_since_last_save = 0  # Reset counter
     
     def _replace_materials_with_closest_match(self, obj, material_properties, doc):
         """Replace materials with closest matching material from the current scene"""
@@ -997,6 +1064,86 @@ class Cinema4DImporter:
                 self.total_materials += 1
         
         self.total_files_processed += 1
+        
+        # Increment files since last save counter
+        self.files_since_last_save += 1
+        
+        # Perform incremental save if needed
+        if self.files_since_last_save >= self.save_interval:
+            self.logger.log("⏳ Performing incremental save...")
+            self._perform_incremental_save(doc)
+            self.files_since_last_save = 0  # Reset counter
+    
+    def _process_compile_redshift_proxies(self, jt_path, parent_obj, material_properties, doc):
+        """Process compile redshift proxies mode - creates assembly with proxy references"""
+        self.logger.log(f"🔗 Compiling redshift proxy assembly for: {os.path.basename(jt_path)}")
+        
+        # Get the hidden container for proxy objects
+        hidden_container = self.geometry_manager.get_or_create_hidden_container(doc)
+        
+        # Check if proxy file exists
+        plmxml_dir = os.path.dirname(doc.GetDocumentPath()) if doc.GetDocumentPath() else os.path.dirname(jt_path)
+        proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
+        proxy_path = os.path.join(plmxml_dir, proxy_filename)
+        
+        proxy_exists = os.path.exists(proxy_path)
+        
+        # Create proxy object (or placeholder if proxy doesn't exist)
+        if proxy_exists:
+            # Create Redshift proxy object
+            try:
+                # Try to create a Redshift proxy object
+                import c4d.plugins
+                redshift_plugin = c4d.plugins.FindPlugin(1036223)  # Redshift plugin ID
+                if redshift_plugin:
+                    proxy_obj = c4d.BaseObject(1036224)  # Redshift Proxy object
+                    if proxy_obj:
+                        proxy_obj[c4d.REDSHIFT_PROXY_PATH] = proxy_path
+                        proxy_obj[c4d.REDSHIFT_PROXY_MODE] = 0  # Reference mode
+                        proxy_obj.SetName(os.path.splitext(os.path.basename(jt_path))[0] + "_Proxy")
+                        # Insert in the hidden container to cache the proxy reference
+                        proxy_obj.InsertUnder(hidden_container)
+                        self.logger.log(f"✓ Redshift proxy object created: {proxy_filename}")
+                    else:
+                        # If Redshift proxy object isn't available, create placeholder
+                        proxy_obj = self._create_placeholder_cube()
+                        proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
+                        self.logger.log(f"🟦 Created placeholder for missing proxy: {proxy_filename}")
+                else:
+                    # Redshift not available, create placeholder
+                    proxy_obj = self._create_placeholder_cube()
+                    proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
+                    self.logger.log(f"🟦 Redshift unavailable, created placeholder: {proxy_filename}")
+            except:
+                # Create placeholder as fallback
+                proxy_obj = self._create_placeholder_cube()
+                proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
+                self.logger.log(f"🟦 Fallback placeholder created: {proxy_filename}")
+        else:
+            # Proxy file doesn't exist, create placeholder cube
+            proxy_obj = self._create_placeholder_cube()
+            proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
+            self.logger.log(f"🟦 Created placeholder for missing proxy: {proxy_filename}")
+        
+        if proxy_obj:
+            # Create an instance of the proxy object to maintain transforms in the visible hierarchy
+            instance_obj = self.geometry_manager.create_instance(proxy_obj, doc)
+            if instance_obj:
+                instance_obj.SetName(proxy_obj.GetName() + "_Instance")
+                # Insert instance under the parent to maintain assembly structure
+                instance_obj.InsertUnder(parent_obj)
+                self.logger.log(f"✓ Proxy instance added to assembly: {instance_obj.GetName()}")
+        
+        self.total_files_processed += 1
+        
+        # Increment files since last save counter
+        self.files_since_last_save += 1
+        
+        # Perform incremental save if needed
+        if self.files_since_last_save >= self.save_interval:
+            self.logger.log("⏳ Performing incremental save...")
+            self._perform_incremental_save(doc)
+            self.files_since_last_save = 0  # Reset counter
     
     def _create_matrix_from_transform(self, transform_matrix):
         """Convert 16-value row-major matrix to Cinema 4D Matrix (transposed)"""
@@ -1012,6 +1159,17 @@ class Cinema4DImporter:
         m.off = c4d.Vector(transform_matrix[12], transform_matrix[13], transform_matrix[14]) # Translation
         
         return m
+    
+    def _calculate_memory_saved(self, unique_geometries, total_files):
+        """Calculate percentage of memory saved through instancing"""
+        if total_files <= 0 or unique_geometries == 0:
+            return 0.0
+        if total_files <= unique_geometries:
+            return 0.0  # No instancing happening
+        
+        # Calculate memory savings: (total_files - unique_geometries) / total_files * 100
+        memory_saved = ((total_files - unique_geometries) / total_files) * 100
+        return max(0.0, memory_saved)  # Ensure non-negative result
     
     def _add_user_data(self, obj, user_data):
         """Add user data to an object"""
