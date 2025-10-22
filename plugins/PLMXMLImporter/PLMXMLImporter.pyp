@@ -1235,8 +1235,8 @@ class PLMXMLDialog(gui.GeDialog):
     IDC_MODE_MATERIAL = 1003
     IDC_MODE_PROXY = 1004
     IDC_MODE_COMPILE = 1005
-    IDC_IMPORT_BUTTON = 1006
-    IDC_CANCEL_BUTTON = 1007
+    IDC_MODE_ASSEMBLY = 1006  # Changed from IDC_IMPORT_BUTTON to IDC_MODE_ASSEMBLY
+    IDC_CANCEL_BUTTON = 1007  # Use standard ID for cancel
     
     def __init__(self):
         super().__init__()
@@ -1263,17 +1263,21 @@ class PLMXMLDialog(gui.GeDialog):
         self.AddRadioText(self.IDC_MODE_MATERIAL, c4d.BFH_LEFT, 300, 20, "Material Extraction Only")
         self.AddRadioText(self.IDC_MODE_PROXY, c4d.BFH_LEFT, 300, 20, "Create Redshift Proxies")
         self.AddRadioText(self.IDC_MODE_COMPILE, c4d.BFH_LEFT, 300, 20, "Compile Redshift Proxies")
-        self.AddRadioText(self.IDC_MODE_COMPILE + 1, c4d.BFH_LEFT, 300, 20, "Full Assembly Import")
+        self.AddRadioText(self.IDC_MODE_ASSEMBLY, c4d.BFH_LEFT, 300, 20, "Full Assembly Import")
         self.GroupEnd()
         
         # Select first mode by default (Material Extraction) and set selected_mode accordingly
+        # Set all radio buttons to proper initial state
         self.SetBool(self.IDC_MODE_MATERIAL, True)
+        self.SetBool(self.IDC_MODE_PROXY, False)
+        self.SetBool(self.IDC_MODE_COMPILE, False)
+        self.SetBool(self.IDC_MODE_ASSEMBLY, False)
         self.selected_mode = 0
         
         # Buttons
         self.GroupBegin(0, c4d.BFH_CENTER, cols=2)
-        self.AddButton(self.IDC_IMPORT_BUTTON, c4d.BFH_LEFT, name="OK")
-        self.AddButton(self.IDC_CANCEL_BUTTON, c4d.BFH_RIGHT, name="Cancel")
+        self.AddButton(c4d.DLG_OK, c4d.BFH_LEFT, name="OK")
+        self.AddButton(c4d.DLG_CANCEL, c4d.BFH_RIGHT, name="Cancel")
         self.GroupEnd()
         
         return True
@@ -1296,30 +1300,30 @@ class PLMXMLDialog(gui.GeDialog):
             self.SetBool(self.IDC_MODE_MATERIAL, True)
             self.SetBool(self.IDC_MODE_PROXY, False)
             self.SetBool(self.IDC_MODE_COMPILE, False)
-            self.SetBool(self.IDC_MODE_COMPILE + 1, False)
+            self.SetBool(self.IDC_MODE_ASSEMBLY, False)
         
         elif id == self.IDC_MODE_PROXY:
             self.selected_mode = 1
             self.SetBool(self.IDC_MODE_MATERIAL, False)
             self.SetBool(self.IDC_MODE_PROXY, True)
             self.SetBool(self.IDC_MODE_COMPILE, False)
-            self.SetBool(self.IDC_MODE_COMPILE + 1, False)
+            self.SetBool(self.IDC_MODE_ASSEMBLY, False)
         
         elif id == self.IDC_MODE_COMPILE:
             self.selected_mode = 2
             self.SetBool(self.IDC_MODE_MATERIAL, False)
             self.SetBool(self.IDC_MODE_PROXY, False)
             self.SetBool(self.IDC_MODE_COMPILE, True)
-            self.SetBool(self.IDC_MODE_COMPILE + 1, False)
+            self.SetBool(self.IDC_MODE_ASSEMBLY, False)
         
-        elif id == self.IDC_MODE_COMPILE + 1:
+        elif id == self.IDC_MODE_ASSEMBLY:
             self.selected_mode = 3
             self.SetBool(self.IDC_MODE_MATERIAL, False)
             self.SetBool(self.IDC_MODE_PROXY, False)
             self.SetBool(self.IDC_MODE_COMPILE, False)
-            self.SetBool(self.IDC_MODE_COMPILE + 1, True)
+            self.SetBool(self.IDC_MODE_ASSEMBLY, True)
         
-        elif id == self.IDC_IMPORT_BUTTON:
+        elif id == c4d.DLG_OK:
             # Get the file path from the edit text
             self.plmxml_path = self.GetString(self.IDC_FILEPATH)
             if not self.plmxml_path or not os.path.exists(self.plmxml_path):
@@ -1330,7 +1334,7 @@ class PLMXMLDialog(gui.GeDialog):
             self._run_import_process()
             return True
         
-        elif id == self.IDC_CANCEL_BUTTON:
+        elif id == c4d.DLG_CANCEL:
             self.Close()
         
         return True
