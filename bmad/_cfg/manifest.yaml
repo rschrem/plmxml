@@ -1,0 +1,10 @@
+installation:
+  version: 6.0.0-alpha.0
+  installDate: '2025-10-21T14:02:49.678Z'
+  lastUpdated: '2025-10-21T14:02:49.678Z'
+modules:
+  - core
+  - bmm
+ides:
+  - claude-code
+  - qwen
