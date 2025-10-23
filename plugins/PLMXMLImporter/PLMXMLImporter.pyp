@@ -1303,8 +1303,9 @@ class Cinema4DImporter:
         """Process compile redshift proxies mode - creates assembly with proxy references"""
         self.logger.log(f"🔗 Compiling redshift proxy assembly for: {os.path.basename(jt_path)}")
         
-        # Get the hidden container for proxy objects
+        # Get the hidden container for proxy objects (_PLMXML_Geometries)
         hidden_container = self.geometry_manager.get_or_create_hidden_container(doc)
+        self.logger.log(f"📁 Using hidden container: {hidden_container.GetName() if hidden_container else 'None'}")
         
         # Check if proxy file exists
         # Use the PLMXML file directory, not the document directory
@@ -1320,40 +1321,63 @@ class Cinema4DImporter:
         
         # Create proxy object (or placeholder if proxy doesn't exist)
         if proxy_exists:
-            # Create Redshift proxy object
+            # Check if Redshift is available first
+            redshift_available = False
             try:
-                # Try to create a Redshift proxy object
-                # NOTE: Don't use 'import c4d.plugins' here as it creates a local c4d variable that shadows the global c4d module
-                redshift_plugin = c4d.plugins.FindPlugin(1036223)  # Redshift plugin ID
-                if redshift_plugin:
-                    # Use the proper Redshift proxy object creation method
-                    proxy_obj = c4d.BaseObject(1038649)  # Redshift Proxy Object plugin ID (com.redshift3d.redshift4c4d.proxyloader)
-                    if proxy_obj:
-                        # Set the proxy file path (just filename since all files are in same directory)
-                        proxy_obj[c4d.REDSHIFT_PROXY_FILE] = os.path.basename(proxy_path)  # Just filename
-                        proxy_obj.SetName(os.path.splitext(os.path.basename(jt_path))[0] + "_RS_Proxy")
-                        doc.InsertObject(proxy_obj)  # Insert into document first
-                        proxy_obj.InsertUnder(hidden_container)  # Then under the hidden container
-                        self.logger.log(f"✓ Redshift proxy object created: {proxy_filename}")
+                # Check for Redshift plugin - try multiple common IDs
+                redshift_plugin_ids = [1036223, 1038650, 1001059]  # Common Redshift plugin IDs
+                for plugin_id in redshift_plugin_ids:
+                    redshift_plugin = c4d.plugins.FindPlugin(plugin_id)
+                    if redshift_plugin is not None:
+                        redshift_available = True
+                        self.logger.log(f"✓ Redshift plugin found with ID: {plugin_id}")
+                        break
+            except Exception as e:
+                self.logger.log(f"⚠ Exception checking for Redshift: {str(e)}", "WARNING")
+                redshift_available = False
+            
+            # Create Redshift proxy object if Redshift is available
+            if redshift_available:
+                try:
+                    # Try to create a Redshift proxy object
+                    # NOTE: Don't use 'import c4d.plugins' here as it creates a local c4d variable that shadows the global c4d module
+                    redshift_plugin = c4d.plugins.FindPlugin(1036223)  # Redshift plugin ID
+                    if redshift_plugin:
+                        # Use the proper Redshift proxy object creation method
+                        proxy_obj = c4d.BaseObject(1038649)  # Redshift Proxy Object plugin ID (com.redshift3d.redshift4c4d.proxyloader)
+                        if proxy_obj:
+                            # Set the proxy file path (just filename since all files are in same directory)
+                            proxy_obj[c4d.REDSHIFT_PROXY_FILE] = os.path.basename(proxy_path)  # Just filename
+                            proxy_obj.SetName(os.path.splitext(os.path.basename(jt_path))[0] + "_RS_Proxy")
+                            doc.InsertObject(proxy_obj)  # Insert into document first
+                            proxy_obj.InsertUnder(hidden_container)  # Then under the hidden container
+                            self.logger.log(f"✓ Redshift proxy object created: {proxy_filename}")
+                        else:
+                            # If Redshift proxy object isn't available, create placeholder
+                            proxy_obj = self.geometry_manager._create_placeholder_cube()
+                            proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
+                            doc.InsertObject(proxy_obj)  # Insert into document first
+                            self.logger.log(f"🟦 Created placeholder for missing proxy: {proxy_filename}")
                     else:
-                        # If Redshift proxy object isn't available, create placeholder
+                        # Redshift not available, create placeholder
                         proxy_obj = self.geometry_manager._create_placeholder_cube()
                         proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
                         doc.InsertObject(proxy_obj)  # Insert into document first
-                        self.logger.log(f"🟦 Created placeholder for missing proxy: {proxy_filename}")
-                else:
-                    # Redshift not available, create placeholder
+                        self.logger.log(f"🟦 Redshift unavailable, created placeholder: {proxy_filename}")
+                except Exception as e:
+                    # Create placeholder as fallback
+                    self.logger.log(f"⚠ Exception during Redshift proxy creation: {str(e)}, creating placeholder")
                     proxy_obj = self.geometry_manager._create_placeholder_cube()
                     proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
                     doc.InsertObject(proxy_obj)  # Insert into document first
-                    self.logger.log(f"🟦 Redshift unavailable, created placeholder: {proxy_filename}")
-            except Exception as e:
-                # Create placeholder as fallback
-                self.logger.log(f"⚠ Exception during Redshift proxy creation: {str(e)}, creating placeholder")
+                    self.logger.log(f"🟦 Fallback placeholder created: {proxy_filename}")
+            else:
+                # Redshift not available, create placeholder
+                self.logger.log(f"🟦 Redshift not available, creating placeholder cube for: {proxy_filename}")
                 proxy_obj = self.geometry_manager._create_placeholder_cube()
                 proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
                 doc.InsertObject(proxy_obj)  # Insert into document first
-                self.logger.log(f"🟦 Fallback placeholder created: {proxy_filename}")
+                self.logger.log(f"🟦 Created placeholder cube for missing proxy: {proxy_filename}")
         else:
             # Proxy file doesn't exist, create placeholder cube
             proxy_obj = self.geometry_manager._create_placeholder_cube()
@@ -1368,6 +1392,9 @@ class Cinema4DImporter:
                 # Insert instance under the parent to maintain assembly structure
                 instance_obj.InsertUnder(parent_obj)
                 self.logger.log(f"✓ Proxy instance added to assembly: {instance_obj.GetName()}")
+                self.logger.log(f"📁 Parent object: {parent_obj.GetName() if parent_obj else 'None'}")
+                self.logger.log(f"📁 Proxy object: {proxy_obj.GetName() if proxy_obj else 'None'}")
+                self.logger.log(f"📁 Instance object: {instance_obj.GetName() if instance_obj else 'None'}")
         
         self.total_files_processed += 1
         
