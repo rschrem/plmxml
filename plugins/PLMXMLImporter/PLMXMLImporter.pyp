@@ -1404,7 +1404,7 @@ class Cinema4DImporter:
             # Create a Redshift proxy object using the correct plugin ID
             # Different versions of Redshift may have different plugin IDs
             # Try to identify the Redshift proxy object
-            redshift_proxy_ids = [1038649, 1036223]  # Potential Redshift proxy plugin IDs
+            redshift_proxy_ids = [1038649]  # Redshift Proxy Loader object ID (most common)
             
             proxy_obj = None
             for proxy_id in redshift_proxy_ids:
@@ -1413,54 +1413,33 @@ class Cinema4DImporter:
                     break
             
             if proxy_obj is None:
-                # If direct creation fails, try to find and clone an existing Redshift proxy
-                # This approach looks for a Redshift proxy in the scene or creates one through plugins
-                rs_plugin = None
-                for plugin_id in [1036223, 1038650, 1001059]:
-                    rs_plugin = c4d.plugins.FindPlugin(plugin_id)
-                    if rs_plugin is not None:
-                        break
-                
-                if rs_plugin is not None:
-                    # Try to create via plugin message
-                    proxy_obj = rs_plugin.Message(c4d.MSG_GETCUSTOMOBJECT, None)
-            
-            if proxy_obj is None:
-                # Return None if we can't create the proxy object
                 return None
             
-            # Set proxy file path - the exact parameter ID depends on the version of Redshift
-            # Try multiple possible parameter IDs for the proxy file path
+            # Set proxy file path - Redshift proxy objects typically use specific parameter IDs
             # Use just the filename (without path) as Redshift expects
             proxy_filename = os.path.basename(proxy_path)  # Get just the filename without directory
             
-            # First, let's try the most common one: c4d.REDSHIFT_PROXY_FILE
-            # If that doesn't exist, use a fallback approach
-            redshift_proxy_param_id = getattr(c4d, 'REDSHIFT_PROXY_FILE', 4100)  # Use a default if not defined
-            
-            possible_param_ids = [
-                redshift_proxy_param_id,
-                4100,  # Common Redshift proxy parameter ID
-                1001,  # Another common parameter ID
-            ]
-            
-            proxy_set = False
-            for param_id in possible_param_ids:
+            # Try setting the proxy file using the correct parameter ID for Redshift Proxy Loader
+            # The parameter ID for the proxy file in Redshift Proxy Loader is typically 1001
+            try:
+                # Parameter ID 1001 is the common parameter for proxy file path 
+                proxy_obj[1001] = proxy_filename
+                proxy_obj.SetName(jt_name + "_RS_Proxy")
+                return proxy_obj
+            except:
+                # If setting parameter ID 1001 fails, try the standard Redshift proxy parameter
                 try:
-                    proxy_obj[param_id] = proxy_filename
-                    proxy_set = True
-                    break
+                    # Try common Redshift proxy parameter ID
+                    proxy_obj[4100] = proxy_filename
+                    proxy_obj.SetName(jt_name + "_RS_Proxy")
+                    return proxy_obj
                 except:
-                    continue
+                    # If all attempts to set the proxy path fail, still return the proxy object
+                    # but log the issue
+                    proxy_obj.SetName(jt_name + "_RS_Proxy")
+                    self.logger.log(f"⚠ Could not set proxy file path for {jt_name + '_RS_Proxy'}, parameter may need manual setting", "WARNING")
+                    return proxy_obj
             
-            if not proxy_set:
-                # If we couldn't set the proxy file path directly, at least set the name
-                proxy_obj.SetName(jt_name + "_RS_Proxy")
-                self.logger.log(f"⚠ Could not set proxy file path, but created proxy object: {jt_name + '_RS_Proxy'}", "WARNING")
-            else:
-                proxy_obj.SetName(jt_name + "_RS_Proxy")
-            
-            return proxy_obj
         except Exception as e:
             self.logger.log(f"⚠ Error creating Redshift proxy object: {str(e)}", "WARNING")
             return None
