@@ -863,13 +863,14 @@ class Cinema4DImporter:
         self.files_since_last_save = 0
         self.save_interval = 5  # Save every 5 files
     
-    def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None):
+    def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None, working_directory=None):
         """Build the Cinema 4D scene hierarchy from parsed data"""
         # Reset unknown keywords tracking for this import
         MaterialPropertyInference.unknown_keywords.clear()
         
-        # Store the PLMXML file path to help resolve relative JT file paths
+        # Store the PLMXML file path and working directory to help resolve file paths
         self.plmxml_file_path = plmxml_file_path
+        self.working_directory = working_directory
         
         self.logger.log("="*80)
         self.logger.log("🏗️  Starting hierarchy building process")
@@ -963,17 +964,11 @@ class Cinema4DImporter:
             jt_transform = jt_data['transform']
             material_properties = jt_data['material_properties']
             
-            # Get full path to JT file (relative to PLMXML file directory)
-            if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path:
-                plmxml_dir = os.path.dirname(self.plmxml_file_path)
-                jt_full_path = os.path.join(plmxml_dir, jt_file)
-            else:
-                # Fallback to document path if PLMXML path not available
-                plmxml_dir = os.path.dirname(doc.GetDocumentPath()) if doc.GetDocumentPath() else ""
-                jt_full_path = os.path.join(plmxml_dir, jt_file) if plmxml_dir else jt_file
+            # Get full path to JT file (relative to working directory)
+            jt_full_path = os.path.join(self.working_directory, jt_file)
             
             # Log the directory where we're searching for JT files
-            self.logger.log(f"🔍 Searching for JT file '{jt_file}' in directory: {plmxml_dir}", "INFO")
+            self.logger.log(f"🔍 Searching for JT file '{jt_file}' in working directory: {self.working_directory}", "INFO")
             
             # Mode-specific processing
             if mode == "material_extraction":
@@ -1117,11 +1112,10 @@ class Cinema4DImporter:
             self._replace_materials_with_closest_match(processing_obj, material_properties, doc)
         
         # Determine the output path for the Redshift proxy
-        # Use the PLMXML file directory, not the active document directory
-        plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
+        # Use the working directory, not the active document directory
         # Use .rs extension as intended for Redshift proxies
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
-        proxy_path = os.path.join(plmxml_dir, proxy_filename)
+        proxy_path = os.path.join(self.working_directory, proxy_filename)
         self.logger.log(f"📁 Proxy output path: {proxy_path}")
         
         # Use Redshift's proxy export functionality
@@ -1408,14 +1402,13 @@ class Cinema4DImporter:
             return
         
         # Check if proxy file exists
-        # Use the PLMXML file directory, not the document directory or JT path directory
-        plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
+        # Use the working directory, not the document directory or JT path directory
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
-        proxy_path = os.path.join(plmxml_dir, proxy_filename)
+        proxy_path = os.path.join(self.working_directory, proxy_filename)
         
         proxy_exists = os.path.exists(proxy_path)
         self.logger.log(f"📁 Checking for proxy: {proxy_path} (exists: {proxy_exists})")
-        self.logger.log(f"📁 PLMXML directory: {plmxml_dir}")
+        self.logger.log(f"📁 Working directory: {self.working_directory}")
         self.logger.log(f"📁 JT path: {jt_path}")
         self.logger.log(f"📁 Self.plmxml_file_path: {getattr(self, 'plmxml_file_path', 'NOT SET')}")
         
@@ -1582,6 +1575,10 @@ class PLMXMLDialog(gui.GeDialog):
         super().__init__()
         self.plmxml_path = ""
         self.selected_mode = 0  # 0: Step 1 Extract materials, 1: Step 2 Create Redshift Proxies, 2: Step 3 Build assembly
+        # Initialize the working directory to the C4D file's directory
+        doc = c4d.documents.GetActiveDocument()
+        c4d_file_path = doc.GetDocumentPath()
+        self.working_directory = os.path.dirname(c4d_file_path) if c4d_file_path and os.path.exists(c4d_file_path) else ""
     
     def CreateLayout(self):
         """Create the dialog layout"""
@@ -1635,26 +1632,21 @@ class PLMXMLDialog(gui.GeDialog):
             self.SetBool(self.IDC_MODE_COMPILE, True)
         
         elif id == c4d.DLG_OK:
-            # Auto-detect PLMXML file from current C4D file directory
-            doc = c4d.documents.GetActiveDocument()
-            c4d_file_path = doc.GetDocumentPath()  # Get the path of the current C4D file
-            
-            if not c4d_file_path or not os.path.exists(c4d_file_path):
+            # Use the working directory to find PLMXML file
+            if not self.working_directory or not os.path.exists(self.working_directory):
                 c4d.gui.MessageDialog("Please save your Cinema 4D file first.")
                 return True
             
-            c4d_dir = os.path.dirname(c4d_file_path)
-            
-            # Look for .plmxml files in the same directory as the C4D file
-            plmxml_files = [f for f in os.listdir(c4d_dir) if f.lower().endswith('.plmxml') and os.path.isfile(os.path.join(c4d_dir, f))]
+            # Look for .plmxml files in the working directory
+            plmxml_files = [f for f in os.listdir(self.working_directory) if f.lower().endswith('.plmxml') and os.path.isfile(os.path.join(self.working_directory, f))]
             
             if not plmxml_files:
-                c4d.gui.MessageDialog(f"No .plmxml files found in the same directory as the C4D file: {c4d_dir}")
+                c4d.gui.MessageDialog(f"No .plmxml files found in the working directory: {self.working_directory}")
                 return True
             
             # If there are multiple .plmxml files, just take the first one
             # In a real implementation, you might want to show a selection dialog
-            self.plmxml_path = os.path.join(c4d_dir, plmxml_files[0])
+            self.plmxml_path = os.path.join(self.working_directory, plmxml_files[0])
             
             # Run import process directly without closing dialog first (to maintain context)
             self._run_import_process()
@@ -1678,7 +1670,7 @@ class PLMXMLDialog(gui.GeDialog):
         mode_steps = ["1", "2", "3"]  # Material extraction, Create redshift proxies, Compile redshift proxies
         mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "1"
         log_filename = f"importPlmxml_{mode_step}_log.txt"
-        log_path = os.path.join(os.path.dirname(self.plmxml_path), log_filename)
+        log_path = os.path.join(self.working_directory, log_filename)
         logger = Logger(log_path)
         
         # Log the start of the process to the console as well
@@ -1687,18 +1679,18 @@ class PLMXMLDialog(gui.GeDialog):
         logger.log(f"🚀 Starting import process for: {os.path.basename(self.plmxml_path)}", "INFO")
         logger.log(f"📁 Using log file: {log_filename}", "INFO")
         logger.log(f"🎬 Cinema 4D document path: {c4d_document_path}", "INFO")
-        search_directory = os.path.dirname(self.plmxml_path)
-        logger.log(f"📂 Directory for searching PLMXML and JT files: {search_directory}", "INFO")
+        logger.log(f"📂 Working directory for all file operations: {self.working_directory}", "INFO")
+        logger.log(f"📂 Directory for searching PLMXML and JT files: {self.working_directory}", "INFO")
         
         # Verify that both paths are the same
-        if c4d_document_path and os.path.dirname(c4d_document_path) == search_directory:
-            logger.log(f"✅ Verification: C4D document directory and search directory match", "INFO")
+        if c4d_document_path and os.path.dirname(c4d_document_path) == self.working_directory:
+            logger.log(f"✅ Verification: C4D document directory and working directory match", "INFO")
         elif not c4d_document_path:
             logger.log(f"⚠️ Verification: C4D document not saved yet (no path available)", "WARNING")
         else:
-            logger.log(f"❌ Verification: C4D document directory and search directory differ", "ERROR")
+            logger.log(f"❌ Verification: C4D document directory and working directory differ", "ERROR")
             logger.log(f"   C4D document directory: {os.path.dirname(c4d_document_path) if c4d_document_path else 'N/A'}", "ERROR")
-            logger.log(f"   Search directory: {search_directory}", "ERROR")
+            logger.log(f"   Working directory: {self.working_directory}", "ERROR")
         
         logger.log(f"🔧 Selected mode: {self.selected_mode}", "INFO")
         
@@ -1725,7 +1717,7 @@ class PLMXMLDialog(gui.GeDialog):
                 return
             
             # Build hierarchy based on selected mode
-            success = importer.build_hierarchy(plmxml_parser, doc, mode_name, self.plmxml_path)
+            success = importer.build_hierarchy(plmxml_parser, doc, mode_name, self.plmxml_path, self.working_directory)
             
             if success:
                 logger.log(f"🎉 Import completed successfully using mode: {mode_name}")
