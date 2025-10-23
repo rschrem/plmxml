@@ -1578,7 +1578,29 @@ class PLMXMLDialog(gui.GeDialog):
         # Initialize the working directory to the C4D file's directory
         doc = c4d.documents.GetActiveDocument()
         c4d_file_path = doc.GetDocumentPath()
-        self.working_directory = os.path.dirname(c4d_file_path) if c4d_file_path and os.path.exists(c4d_file_path) else ""
+        if c4d_file_path and os.path.exists(c4d_file_path):
+            self.working_directory = os.path.dirname(c4d_file_path)
+        else:
+            self.working_directory = ""
+        
+        # Initialize logger for the dialog
+        # Set up a default log path in the working directory or temp directory
+        import tempfile
+        if self.working_directory:
+            default_log_path = os.path.join(self.working_directory, "debug_dialog_log.txt")
+        else:
+            default_log_path = os.path.join(tempfile.gettempdir(), f"plmxml_debug_{os.getpid()}.txt")
+        
+        self.logger = Logger(default_log_path)
+        
+        self.logger.log(f"🔧 Dialog initialized - C4D file: {c4d_file_path}", "INFO")
+        print(f"🔧 Dialog initialized - C4D file: {c4d_file_path}")
+        self.logger.log(f"📂 Working directory set to: {self.working_directory}", "INFO")
+        print(f"📂 Working directory set to: {self.working_directory}")
+        
+        if not c4d_file_path or not os.path.exists(c4d_file_path):
+            self.logger.log(f"⚠️ C4D document not saved - no file path available", "WARNING")
+            print(f"⚠️ C4D document not saved - no file path available")
     
     def CreateLayout(self):
         """Create the dialog layout"""
@@ -1632,21 +1654,50 @@ class PLMXMLDialog(gui.GeDialog):
             self.SetBool(self.IDC_MODE_COMPILE, True)
         
         elif id == c4d.DLG_OK:
+            # Log detailed info before looking for PLMXML file
+            doc = c4d.documents.GetActiveDocument()
+            c4d_file_path = doc.GetDocumentPath()
+            
+            self.logger.log(f"🎬 Cinema 4D file path: {c4d_file_path}", "INFO")
+            self.logger.log(f"📂 Working directory for search: {self.working_directory}", "INFO")
+            
             # Use the working directory to find PLMXML file
             if not self.working_directory or not os.path.exists(self.working_directory):
+                self.logger.log(f"❌ Working directory does not exist: {self.working_directory}", "ERROR")
                 c4d.gui.MessageDialog("Please save your Cinema 4D file first.")
                 return True
             
-            # Look for .plmxml files in the working directory
-            plmxml_files = [f for f in os.listdir(self.working_directory) if f.lower().endswith('.plmxml') and os.path.isfile(os.path.join(self.working_directory, f))]
+            # Log directory contents for debugging
+            try:
+                dir_contents = os.listdir(self.working_directory)
+                self.logger.log(f"📁 Contents of working directory ({self.working_directory}): {dir_contents}", "INFO")
+                
+                # Look for .plmxml files in the working directory
+                plmxml_files = [f for f in dir_contents if f.lower().endswith('.plmxml') and os.path.isfile(os.path.join(self.working_directory, f))]
+                
+                self.logger.log(f"🔍 Found PLMXML files: {plmxml_files}", "INFO")
+            except Exception as e:
+                self.logger.log(f"❌ Error accessing working directory {self.working_directory}: {str(e)}", "ERROR")
+                c4d.gui.MessageDialog(f"Error accessing directory: {str(e)}")
+                return True
             
             if not plmxml_files:
+                self.logger.log(f"❌ No .plmxml files found in working directory: {self.working_directory}", "ERROR")
+                # List all .plmxml files in the directory (case-insensitive)
+                try:
+                    all_files = [f for f in os.listdir(self.working_directory) if f.lower().endswith('.plmxml')]
+                    if all_files:
+                        self.logger.log(f"💡 Found files with .plmxml extension (possibly case-sensitive): {all_files}", "WARNING")
+                except:
+                    pass  # Don't let this error break the process
+                
                 c4d.gui.MessageDialog(f"No .plmxml files found in the working directory: {self.working_directory}")
                 return True
             
             # If there are multiple .plmxml files, just take the first one
             # In a real implementation, you might want to show a selection dialog
             self.plmxml_path = os.path.join(self.working_directory, plmxml_files[0])
+            self.logger.log(f"✅ PLMXML file selected: {self.plmxml_path}", "INFO")
             
             # Run import process directly without closing dialog first (to maintain context)
             self._run_import_process()
@@ -1710,6 +1761,13 @@ class PLMXMLDialog(gui.GeDialog):
             logger.log(f"🚀 Starting import process in mode: {mode_name}")
             
             # Parse the PLMXML file
+            if not os.path.exists(self.plmxml_path):
+                logger.log(f"✗ PLMXML file does not exist: {self.plmxml_path}", "ERROR")
+                self.logger.log(f"❌ PLMXML file does not exist: {self.plmxml_path}", "ERROR")  # Also log to dialog logger
+                logger.close()
+                c4d.gui.MessageDialog(f"PLMXML file not found: {self.plmxml_path}")
+                return
+                
             if not plmxml_parser.parse_plmxml(self.plmxml_path):
                 logger.log("✗ PLMXML parsing failed", "ERROR")
                 logger.close()
