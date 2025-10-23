@@ -1583,6 +1583,10 @@ class PLMXMLDialog(gui.GeDialog):
             doc_path = doc.GetDocumentPath()
             doc_dir = os.path.dirname(doc_path) if doc_path else ""
             
+            # DEBUG: Print the document path and directory being checked
+            print(f"DEBUG: Document path from GetDocumentPath(): '{doc_path}'")
+            print(f"DEBUG: Directory being checked: '{doc_dir}'")
+            
             # If no document path exists, show an error message
             if not doc_dir:
                 self.Close()  # Close dialog immediately
