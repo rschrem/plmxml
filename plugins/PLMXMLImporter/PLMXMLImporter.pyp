@@ -1708,7 +1708,10 @@ class PLMXMLDialog(gui.GeDialog):
             self.plmxml_path = os.path.join(self.working_directory, plmxml_files[0])
             self.logger.log(f"✅ PLMXML file selected: {self.plmxml_path}", "INFO")
             
-            # Run import process directly without closing dialog first (to maintain context)
+            # Close the dialog immediately before starting the import process
+            self.Close()
+            
+            # Run import process
             self._run_import_process()
             return True
         
