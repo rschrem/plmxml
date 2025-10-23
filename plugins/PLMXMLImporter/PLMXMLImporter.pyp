@@ -783,12 +783,12 @@ class GeometryInstanceManager:
             self.logger.log(f"⚠ Incremental save failed: {str(e)}", "WARNING")
             return False
     
-    def _create_placeholder_cube(self):
-        """Create a 10m cube placeholder for missing JT files"""
+    def _create_placeholder_cube(self, size=10000):
+        """Create a cube placeholder for missing JT files"""
         cube = c4d.BaseObject(c4d.Ocube)
         if cube is None:
             return None
-        cube[c4d.PRIM_CUBE_LEN] = c4d.Vector(10000, 10000, 10000)  # 10m in Cinema 4D units
+        cube[c4d.PRIM_CUBE_LEN] = c4d.Vector(size, size, size)  # Size in Cinema 4D units
         return cube
     
     def _count_polygons_in_document(self, doc):
@@ -1439,7 +1439,15 @@ class Cinema4DImporter:
                 if proxy_obj:
                     # Set the proxy file path (just the filename, not full path, as per requirements)
                     proxy_filename_only = os.path.basename(proxy_path)
-                    proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_filename_only
+                    try:
+                        proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_filename_only
+                    except:
+                        # Fallback if parameter ID doesn't work
+                        try:
+                            # Use alternative approach if possible
+                            proxy_obj.SetName(proxy_filename)
+                        except:
+                            proxy_obj.SetName("RedshiftProxy")
                     proxy_obj.SetName(proxy_filename)
                     
                     doc.InsertObject(proxy_obj)  # Insert into document first
