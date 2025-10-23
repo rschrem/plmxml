@@ -1439,15 +1439,21 @@ class Cinema4DImporter:
                 if proxy_obj:
                     # Set the proxy file path (just the filename, not full path, as per requirements)
                     proxy_filename_only = os.path.basename(proxy_path)
+                    # Try to set Redshift proxy file parameter using proper file type
                     # Check if Redshift parameter ID exists before using it
                     if hasattr(c4d, 'REDSHIFT_PROXY_FILE'):
                         try:
-                            # Try setting the Redshift proxy file parameter using its specific ID
-                            proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_filename_only
+                            # Try setting the Redshift proxy file parameter using a c4d.filename object (for file parameters)
+                            proxy_file_obj = c4d.filename(proxy_filename_only)
+                            proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_file_obj
                         except TypeError:
-                            # If there's a type error (most likely case from original error), set as name only
-                            proxy_obj.SetName(proxy_filename)
-                            self.logger.log(f"ℹ Redshift proxy file type error, using proxy with name: {proxy_filename}", "INFO")
+                            # If type error occurs, try with the filename directly as string
+                            try:
+                                proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_filename_only
+                            except:
+                                # If that also fails, set as name only
+                                proxy_obj.SetName(proxy_filename)
+                                self.logger.log(f"ℹ Redshift proxy file setting failed, using name: {proxy_filename}", "INFO")
                         except:
                             # Other errors - fallback to name
                             proxy_obj.SetName(proxy_filename)
