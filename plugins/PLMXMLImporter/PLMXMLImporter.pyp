@@ -1337,26 +1337,26 @@ class Cinema4DImporter:
                         self.logger.log(f"✓ Redshift proxy object created: {proxy_filename}")
                     else:
                         # If Redshift proxy object isn't available, create placeholder
-                        proxy_obj = self._create_placeholder_cube()
+                        proxy_obj = self.geometry_manager._create_placeholder_cube()
                         proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
                         doc.InsertObject(proxy_obj)  # Insert into document first
                         self.logger.log(f"🟦 Created placeholder for missing proxy: {proxy_filename}")
                 else:
                     # Redshift not available, create placeholder
-                    proxy_obj = self._create_placeholder_cube()
+                    proxy_obj = self.geometry_manager._create_placeholder_cube()
                     proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
                     doc.InsertObject(proxy_obj)  # Insert into document first
                     self.logger.log(f"🟦 Redshift unavailable, created placeholder: {proxy_filename}")
             except Exception as e:
                 # Create placeholder as fallback
                 self.logger.log(f"⚠ Exception during Redshift proxy creation: {str(e)}, creating placeholder")
-                proxy_obj = self._create_placeholder_cube()
+                proxy_obj = self.geometry_manager._create_placeholder_cube()
                 proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
                 doc.InsertObject(proxy_obj)  # Insert into document first
                 self.logger.log(f"🟦 Fallback placeholder created: {proxy_filename}")
         else:
             # Proxy file doesn't exist, create placeholder cube
-            proxy_obj = self._create_placeholder_cube()
+            proxy_obj = self.geometry_manager._create_placeholder_cube()
             proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
             self.logger.log(f"🟦 Created placeholder for missing proxy: {proxy_filename}")
         
