@@ -1439,29 +1439,22 @@ class Cinema4DImporter:
                 if proxy_obj:
                     # Set the proxy file path (just the filename, not full path, as per requirements)
                     proxy_filename_only = os.path.basename(proxy_path)
-                    # Try to set Redshift proxy file parameter using proper file type
-                    # Check if Redshift parameter ID exists before using it
+                    
+                    # Set the proxy's name to the filename
+                    proxy_obj.SetName(proxy_filename)
+                    
+                    # Try to set the Redshift proxy file property if Redshift is available
                     if hasattr(c4d, 'REDSHIFT_PROXY_FILE'):
                         try:
-                            # Try setting the Redshift proxy file parameter using a c4d.filename object (for file parameters)
+                            # Use c4d.filename object for file parameters
                             proxy_file_obj = c4d.filename(proxy_filename_only)
                             proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_file_obj
-                        except TypeError:
-                            # If type error occurs, try with the filename directly as string
-                            try:
-                                proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_filename_only
-                            except:
-                                # If that also fails, set as name only
-                                proxy_obj.SetName(proxy_filename)
-                                self.logger.log(f"ℹ Redshift proxy file setting failed, using name: {proxy_filename}", "INFO")
                         except:
-                            # Other errors - fallback to name
-                            proxy_obj.SetName(proxy_filename)
-                            self.logger.log(f"⚠ Redshift proxy parameter error, using name: {proxy_filename}", "WARNING")
+                            # If setting the file property fails, log it but continue
+                            self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}", "WARNING")
                     else:
-                        # If Redshift constant doesn't exist, just set the name
-                        proxy_obj.SetName(proxy_filename)
-                        self.logger.log(f"ℹ Redshift parameter ID not available, using proxy with name: {proxy_filename}", "INFO")
+                        # Redshift not available
+                        self.logger.log(f"ℹ Redshift not available, creating proxy: {proxy_filename_only}", "INFO")
                     proxy_obj.SetName(proxy_filename)
                     
                     doc.InsertObject(proxy_obj)  # Insert into document first
