@@ -947,8 +947,8 @@ class Cinema4DImporter:
             elif mode == "create_redshift_proxies":
                 # Create redshift proxies
                 self._process_redshift_proxy_creation(jt_full_path, null_obj, material_properties, doc)
-            elif mode == "compile_redshift_proxies":
-                # Compile assembly using existing redshift proxies
+            elif mode == "build_assembly_tree_only":
+                # Build assembly using existing redshift proxies
                 self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc)
             else:
                 # Default: load geometry and create instances
@@ -1521,41 +1521,25 @@ class PLMXMLDialog(gui.GeDialog):
     """Dialog for the PLMXML Importer plugin"""
     
     # Dialog element IDs
-    IDC_FILEPATH = 1000
-    IDC_BROWSE_BUTTON = 1001
     IDC_MODE_GROUP = 1002
     IDC_MODE_MATERIAL = 1003
     IDC_MODE_PROXY = 1004
     IDC_MODE_COMPILE = 1005
-    IDC_MODE_ASSEMBLY = 1006  # Changed from IDC_IMPORT_BUTTON to IDC_MODE_ASSEMBLY
-    IDC_CANCEL_BUTTON = 1007  # Use standard ID for cancel
+    IDC_CANCEL_BUTTON = 1006  # Use standard ID for cancel
     
     def __init__(self):
         super().__init__()
-        self.plmxml_path = ""
-        self.selected_mode = 0  # 0: Assembly Import, 1: Material Extraction, 2: Create Redshift Proxies, 3: Compile Redshift Proxies
+        self.selected_mode = 0  # 0: Material Extraction, 1: Create Redshift Proxies, 2: Build Assembly Tree
     
     def CreateLayout(self):
         """Create the dialog layout"""
-        self.SetTitle("PLMXML Assembly Importer")
-        
-        # File selection
-        self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2)
-        self.AddStaticText(0, c4d.BFH_LEFT, name="PLMXML File:")
-        self.AddEditText(self.IDC_FILEPATH, c4d.BFH_SCALEFIT)
-        self.SetString(self.IDC_FILEPATH, "")  # Set initial string value
-        self.GroupEnd()
-        
-        self.GroupBegin(0, c4d.BFH_LEFT, cols=1)
-        self.AddButton(self.IDC_BROWSE_BUTTON, c4d.BFH_LEFT, name="Browse...")
-        self.GroupEnd()
+        self.SetTitle("PLMXML Assembly Importer - Step-by-Step")
         
         # Mode selection - Radio buttons
-        self.GroupBegin(self.IDC_MODE_GROUP, c4d.BFH_LEFT, cols=1, rows=4)
-        self.AddRadioText(self.IDC_MODE_MATERIAL, c4d.BFH_LEFT, 300, 20, "Material Extraction Only")
-        self.AddRadioText(self.IDC_MODE_PROXY, c4d.BFH_LEFT, 300, 20, "Create Redshift Proxies")
-        self.AddRadioText(self.IDC_MODE_COMPILE, c4d.BFH_LEFT, 300, 20, "Compile Redshift Proxies")
-        self.AddRadioText(self.IDC_MODE_ASSEMBLY, c4d.BFH_LEFT, 300, 20, "Full Assembly Import")
+        self.GroupBegin(self.IDC_MODE_GROUP, c4d.BFH_LEFT, cols=1, rows=3)
+        self.AddRadioText(self.IDC_MODE_MATERIAL, c4d.BFH_LEFT, 400, 20, "Step 1: Material extraction only")
+        self.AddRadioText(self.IDC_MODE_PROXY, c4d.BFH_LEFT, 400, 20, "Step 2: Create redshift proxies only")
+        self.AddRadioText(self.IDC_MODE_COMPILE, c4d.BFH_LEFT, 400, 20, "Step 3: Build Assembly tree only")
         self.GroupEnd()
         
         # Select first mode by default (Material Extraction) and set selected_mode accordingly
@@ -1563,7 +1547,6 @@ class PLMXMLDialog(gui.GeDialog):
         self.SetBool(self.IDC_MODE_MATERIAL, True)
         self.SetBool(self.IDC_MODE_PROXY, False)
         self.SetBool(self.IDC_MODE_COMPILE, False)
-        self.SetBool(self.IDC_MODE_ASSEMBLY, False)
         self.selected_mode = 0
         
         # Buttons
@@ -1576,52 +1559,52 @@ class PLMXMLDialog(gui.GeDialog):
     
     def Command(self, id, msg):
         """Handle dialog commands"""
-        if id == self.IDC_BROWSE_BUTTON:
-            # Show file browser
-            file_path = c4d.storage.LoadDialog(
-                type=c4d.FILESELECTTYPE_SCENES,
-                title="Select PLMXML File",
-                flags=c4d.FILESELECT_LOAD
-            )
-            if file_path:
-                self.SetString(self.IDC_FILEPATH, file_path)
-                self.plmxml_path = file_path
-        
-        elif id == self.IDC_MODE_MATERIAL:
+        if id == self.IDC_MODE_MATERIAL:
             self.selected_mode = 0
             self.SetBool(self.IDC_MODE_MATERIAL, True)
             self.SetBool(self.IDC_MODE_PROXY, False)
             self.SetBool(self.IDC_MODE_COMPILE, False)
-            self.SetBool(self.IDC_MODE_ASSEMBLY, False)
         
         elif id == self.IDC_MODE_PROXY:
             self.selected_mode = 1
             self.SetBool(self.IDC_MODE_MATERIAL, False)
             self.SetBool(self.IDC_MODE_PROXY, True)
             self.SetBool(self.IDC_MODE_COMPILE, False)
-            self.SetBool(self.IDC_MODE_ASSEMBLY, False)
         
         elif id == self.IDC_MODE_COMPILE:
             self.selected_mode = 2
             self.SetBool(self.IDC_MODE_MATERIAL, False)
             self.SetBool(self.IDC_MODE_PROXY, False)
             self.SetBool(self.IDC_MODE_COMPILE, True)
-            self.SetBool(self.IDC_MODE_ASSEMBLY, False)
-        
-        elif id == self.IDC_MODE_ASSEMBLY:
-            self.selected_mode = 3
-            self.SetBool(self.IDC_MODE_MATERIAL, False)
-            self.SetBool(self.IDC_MODE_PROXY, False)
-            self.SetBool(self.IDC_MODE_COMPILE, False)
-            self.SetBool(self.IDC_MODE_ASSEMBLY, True)
         
         elif id == c4d.DLG_OK:
-            # Get the file path from the edit text if not already set
-            if not self.plmxml_path:
-                self.plmxml_path = self.GetString(self.IDC_FILEPATH)
-            if not self.plmxml_path or not os.path.exists(self.plmxml_path):
-                c4d.gui.MessageDialog("Please select a valid PLMXML file.")
+            # Find the PLMXML file in the same directory as the current C4D document
+            doc = c4d.documents.GetActiveDocument()
+            doc_path = doc.GetDocumentPath()
+            doc_dir = os.path.dirname(doc_path) if doc_path else ""
+            
+            # If no document path exists, show an error message
+            if not doc_dir:
+                c4d.gui.MessageDialog("Please save the Cinema 4D document first in the same folder as the PLMXML file.")
                 return True
+            
+            # Look for .plmxml file in the same directory
+            plmxml_file = None
+            for file in os.listdir(doc_dir):
+                if file.lower().endswith('.plmxml'):
+                    if plmxml_file is not None:
+                        # More than one .plmxml file found
+                        c4d.gui.MessageDialog("Multiple .plmxml files found in the directory. Please ensure there is only one .plmxml file in the same folder as the C4D document.")
+                        return True
+                    plmxml_file = file
+            
+            # If no .plmxml file found
+            if plmxml_file is None:
+                c4d.gui.MessageDialog("No .plmxml file found in the same directory as the C4D document.")
+                return True
+            
+            # Set the path to the found PLMXML file
+            self.plmxml_path = os.path.join(doc_dir, plmxml_file)
             
             # Run import process directly without closing dialog first (to maintain context)
             self._run_import_process()
@@ -1638,8 +1621,8 @@ class PLMXMLDialog(gui.GeDialog):
         doc = c4d.documents.GetActiveDocument()
         
         # Set up logging with requested format: importPlmxml_{Step}_log.txt
-        mode_steps = ["1", "2", "3", "4"]  # Material extraction, Create redshift proxies, Compile redshift proxies, Assembly
-        mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "4"
+        mode_steps = ["1", "2", "3"]  # Material extraction, Create redshift proxies, Build assembly tree only
+        mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "1"
         log_filename = f"importPlmxml_{mode_step}_log.txt"
         log_path = os.path.join(os.path.dirname(self.plmxml_path), log_filename)
         logger = Logger(log_path)
@@ -1659,10 +1642,10 @@ class PLMXMLDialog(gui.GeDialog):
             importer = Cinema4DImporter(logger, material_manager, geometry_manager, self.plmxml_path)
             
             # Map mode to string and create proper log file name
-            mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies", "assembly"]
-            mode_steps = ["1", "2", "3", "4"]  # Corresponding step numbers
-            mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "assembly"
-            mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "4"
+            mode_names = ["material_extraction", "create_redshift_proxies", "build_assembly_tree_only"]
+            mode_steps = ["1", "2", "3"]  # Corresponding step numbers
+            mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "material_extraction"
+            mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "1"
             
             logger.log(f"🚀 Starting import process in mode: {mode_name}")
             
