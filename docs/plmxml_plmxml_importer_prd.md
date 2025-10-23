@@ -185,6 +185,9 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - Redshift proxy export: In Cinema 4D 2025 (needs to be checked in future versions of Cinema 4D as this might change), command ID `1038650` saves the currently active document as a Redshift proxy: `c4d.CallCommand(1038650) # RS Proxy (*.rs)`
 - This command must be called with the document containing only the object to be exported as the active document
 - The command saves the file to the user's default location, so the proxy path needs to be set separately
+- Redshift Proxy Object plugin ID: `1038649` (com.redshift3d.redshift4c4d.proxyloader)
+- Redshift plugin ID: `1036223` (common Redshift plugin ID)
+- RS Proxy (*.rs) export command: `1038650` in Cinema 4D 2025
 
 ### 8.2 Logging and Output
 - The plugin creates separate log files for each mode: `importPlmxml_{Step}_log.txt`
