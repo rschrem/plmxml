@@ -1446,9 +1446,9 @@ class Cinema4DImporter:
                     # Try to set the Redshift proxy file property if Redshift is available
                     if hasattr(c4d, 'REDSHIFT_PROXY_FILE'):
                         try:
-                            # Use c4d.filename object for file parameters
+                            # Use SetParameter method which is more reliable for plugin parameters
                             proxy_file_obj = c4d.filename(proxy_filename_only)
-                            proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_file_obj
+                            proxy_obj.SetParameter(c4d.REDSHIFT_PROXY_FILE, proxy_file_obj, c4d.DESCFLAGS_SET_0)
                         except:
                             # If setting the file property fails, log it but continue
                             self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}", "WARNING")
