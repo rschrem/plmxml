@@ -1446,12 +1446,21 @@ class Cinema4DImporter:
                     # Try to set the Redshift proxy file property if Redshift is available
                     if hasattr(c4d, 'REDSHIFT_PROXY_FILE'):
                         try:
+                            # Log the Redshift proxy file constant for debugging
+                            redshift_constant = getattr(c4d, 'REDSHIFT_PROXY_FILE')
+                            self.logger.log(f"🔍 Redshift proxy file constant: {redshift_constant} (type: {type(redshift_constant)})", "INFO")
+                            
                             # Use SetParameter method which is more reliable for plugin parameters
                             proxy_file_obj = c4d.filename(proxy_filename_only)
-                            proxy_obj.SetParameter(c4d.REDSHIFT_PROXY_FILE, proxy_file_obj, c4d.DESCFLAGS_SET_0)
-                        except:
+                            self.logger.log(f"🔍 Created c4d.filename object: {proxy_filename_only} (type: {type(proxy_file_obj)})", "INFO")
+                            self.logger.log(f"🔍 Attempting to set Redshift proxy file property: {proxy_filename_only}", "INFO")
+                            success = proxy_obj.SetParameter(redshift_constant, proxy_file_obj, c4d.DESCFLAGS_SET_0)
+                            self.logger.log(f"🔍 Redshift proxy file property setting result: {success}", "INFO")
+                            if not success:
+                                self.logger.log(f"⚠ Redshift proxy file property setting returned False for: {proxy_filename_only}", "WARNING")
+                        except Exception as e:
                             # If setting the file property fails, log it but continue
-                            self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}", "WARNING")
+                            self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}. Error: {str(e)}", "WARNING")
                     else:
                         # Redshift not available
                         self.logger.log(f"ℹ Redshift not available, creating proxy: {proxy_filename_only}", "INFO")
