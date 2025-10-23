@@ -979,7 +979,7 @@ class Cinema4DImporter:
                 self._process_redshift_proxy_creation(jt_full_path, null_obj, material_properties, doc)
             elif mode == "compile_redshift_proxies":
                 # Compile assembly using existing redshift proxies
-                self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc)
+                self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc, jt_transform)
             else:
                 # Default: load geometry and create instances
                 self._process_geometry_loading(jt_full_path, jt_transform, material_properties, null_obj, doc)
@@ -1379,7 +1379,7 @@ class Cinema4DImporter:
             self.geometry_manager._perform_incremental_save(doc)
             self.files_since_last_save = 0  # Reset counter
     
-    def _process_compile_redshift_proxies(self, jt_path, parent_obj, material_properties, doc):
+    def _process_compile_redshift_proxies(self, jt_path, parent_obj, material_properties, doc, jt_transform=None):
         """Process compile redshift proxies mode - creates assembly with proxy references"""
         self.logger.log(f"🔗 Compiling redshift proxy assembly for: {os.path.basename(jt_path)}")
         
@@ -1414,9 +1414,9 @@ class Cinema4DImporter:
         
         # If proxy doesn't exist, also log the directory contents for debugging
         if not proxy_exists:
-            self.logger.log(f"📁 Directory contents of {plmxml_dir}:")
+            self.logger.log(f"📁 Directory contents of {self.working_directory}:")
             try:
-                dir_contents = os.listdir(plmxml_dir)
+                dir_contents = os.listdir(self.working_directory)
                 rs_files = [f for f in dir_contents if f.endswith('.rs')]
                 self.logger.log(f"📁 Found .rs files: {rs_files}")
                 # Also log all files for debugging purposes
@@ -1474,6 +1474,12 @@ class Cinema4DImporter:
                 instance_obj.SetName(jt_name + "_Instance")
                 # Insert instance under the parent to maintain assembly structure
                 instance_obj.InsertUnder(parent_obj)
+                
+                # Apply JT transform to the instance if provided
+                if jt_transform:
+                    jt_matrix = self._create_matrix_from_transform(jt_transform)
+                    instance_obj.SetMg(jt_matrix)
+                
                 self.logger.log(f"✓ Proxy instance added to assembly: {instance_obj.GetName()}")
                 self.logger.log(f"📁 Parent object: {parent_obj.GetName() if parent_obj else 'None'}")
                 self.logger.log(f"📁 JT null object: {jt_null_obj.GetName() if jt_null_obj else 'None'}")
