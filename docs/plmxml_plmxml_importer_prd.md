@@ -77,7 +77,7 @@ Create a robust, efficient, and reliable solution for importing complex PLMXML a
 - **FR-014**: Plugin shall recreate the original PLMXML hierarchy in the Assembly root
 - **FR-015**: Plugin shall use instance references to the appropriate Null Object nodes in `_PLMXML_Geometries` tree
 - **FR-016**: Plugin shall maintain parent-child relationships from the original PLMXML structure
-- **FR-017**: Plugin shall properly resolve relative paths using the PLMXML file directory
+- **FR-017**: Plugin uses global working directory for all file operations, eliminating need for complex path resolution
 
 #### 3.3.3 Geometry Handling
 - **FR-008**: Plugin shall implement geometry instancing to optimize memory usage
@@ -215,7 +215,7 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Button Management**: Proper ID management to prevent conflicts between buttons and other controls
 - **Step-by-Step Workflow**: Three mutually exclusive radio buttons for Step 1 (Extract materials), Step 2 (Create Redshift Proxies), Step 3 (Build assembly)
 - **Auto-Detection**: PLMXML file auto-detected from same directory as current C4D document (no manual file selection)
-- **Directory Resolution**: Plugin correctly checks the directory containing the C4D file for .plmxml files, not the parent directory
+- **Directory Resolution**: Plugin uses a global working directory initialized to the C4D file directory; all file operations (PLMXML, JT, RS proxies, logs) occur in this single working directory
 - **Button Order**: OK on the right, Cancel on the left (swapped from default to follow common UI patterns)
 - **No File Input Field**: Removed PLMXML file input field and browse button from the dialog
 - **Dialog Closure**: Dialog closes immediately when OK is pressed before starting import process
@@ -227,14 +227,14 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Comprehensive Logging**: Detailed logging for troubleshooting and debugging
 
 ### 8.8 Redshift Proxy Compilation Workflow (Step 3: Build Assembly Tree Only Implementation)
-- **Single Directory Requirement**: All files (.plmxml, .stpx, .c4d, .jt, .rs) are in the same directory
+- **Working Directory Approach**: All files (.plmxml, .stpx, .c4d, .jt, .rs, logs) are in the working directory using global working directory variable
 - **Hidden Geometry Container**: Create `_PLMXML_Geometries` null object to contain all geometry references
 - **Per-JT File Nodes**: Create null objects named after each JT file directly under `_PLMXML_Geometries`
-- **Conditional Proxy Creation**: Check if `.rs` proxy files exist in same directory as PLMXML file
+- **Conditional Proxy Creation**: Check if `.rs` proxy files exist in working directory
 - **Redshift Proxy Objects**: Create Redshift Proxy objects using proper plugin ID (1038649) with just filename (no path)
 - **Placeholder Cubes**: Create 5×5×5 meter cubes as fallback when `.rs` files are missing
 - **Assembly Recreation**: Recreate original hierarchy using instance references to `_PLMXML_Geometries` nodes
-- **Simplified Path Resolution**: No complex path resolution needed since all files are co-located
+- **Simplified File Operations**: No complex path resolution needed due to global working directory implementation
 - **Instance Management**: Maintain transforms and relationships through instance references
 - **Document Structure**: Preserve parent-child relationships from original PLMXML structure
 - **Proper Redshift API**: Use `c4d.REDSHIFT_PROXY_FILE` parameter for proper proxy file assignment
@@ -247,3 +247,4 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Version 3.3 Updates**: Fixed path resolution to correctly check directory containing C4D file for .plmxml files (not parent directory)
 - **Version 3.4 Updates**: Removed PLMXML file input field and browse button from dialog, swapped OK and Cancel button positions to follow standard UI patterns, auto-detection of PLMXML file from current C4D file directory
 - **Version 3.5 Updates**: Renamed UI options to Step 1: Extract materials, Step 2: Create Redshift Proxies, Step 3: Build assembly for clarity; removed Full Assembly Import option
+- **Version 3.6 Updates**: Implemented global working directory variable for simplified file operations; all files (PLMXML, JT, RS proxies, logs) now use single directory approach eliminating complex path arithmetic

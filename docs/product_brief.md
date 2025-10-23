@@ -62,10 +62,10 @@ Import Modes
    * Progress tracking with detailed statistics
 
 3. Step 3: Build Assembly Tree Only
-   * Auto-detect PLMXML file from same directory as current C4D document
+   * Auto-detect PLMXML file from working directory (initialized to C4D document directory)
    * Parse PLMXML and create null object hierarchy in _PLMXML_Geometries container
    * For each JT file, create null object with same name directly under _PLMXML_Geometries
-   * Check if .rs proxy file exists in same directory as PLMXML file
+   * Check if .rs proxy file exists in working directory
    * If .rs file exists: Create Redshift Proxy object as child with just filename (no path)
    * If .rs file doesn't exist: Create 5×5×5 meter cube as child
    * Recreate original hierarchy in Assembly root using instance references
@@ -87,7 +87,7 @@ Usability
 * Provide clear progress feedback and meaningful error messages
 * Support intuitive mode selection with three step-by-step radio buttons (Step 1: Extract materials, Step 2: Create Redshift Proxies, Step 3: Build assembly)
 * Maintain familiar Cinema 4D UI conventions with OK button on right, Cancel button on left
-* Auto-detect PLMXML file from same directory as current C4D document (using doc.GetDocumentPath() directly, not parent directory)
+* Auto-detect PLMXML file from working directory (initialized to C4D document directory using doc.GetDocumentPath() directly)
 * No manual PLMXML file input field or browse button in UI - auto-detection only
 * Dialog closes immediately when OK is pressed before starting import process
 
@@ -113,14 +113,14 @@ Redshift Integration
 * Gracefully fallback to placeholder cubes when Redshift unavailable
 
 File Handling
-* Support for relative JT file paths (relative to PLMXML file)
-* Proper path resolution using PLMXML file directory
+* Support for JT file paths (all files accessed through working directory)
+* Simplified path handling using global working directory variable
 * Check file existence before attempting to load
 * Create 10m cube placeholders for missing files
 * Export Redshift proxies with proper .rs extensions
 
 Logging and Debugging
-* Create separate log files for each mode (importPlmxml_{Step}_log.txt)
+* Create separate log files for each mode (importPlmxml_{Step}_log.txt) in the working directory
 * Dual output to both console and file for debugging
 * Immediate disk write for crash recovery
 * UTF-8 encoding with proper formatting
@@ -137,7 +137,7 @@ Component Structure
 * Logger: Dual output logging system with immediate flush capability
 
 Data Flow
-1. User selects import mode through dialog (PLMXML file auto-detected from current C4D document directory)
+1. User selects import mode through dialog (PLMXML file auto-detected from working directory, initialized to current C4D document directory)
 2. Plugin parses PLMXML file to extract hierarchy and material data
 3. Based on selected mode, process JT files accordingly:
    * Step 1: Extract materials: Extract materials only, remove geometry

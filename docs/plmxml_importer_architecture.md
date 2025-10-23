@@ -53,9 +53,10 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 
 **Responsibilities:**  
 - Display mode selection (Step 1: Extract materials, Step 2: Create Redshift Proxies, Step 3: Build assembly)
-- Auto-detect PLMXML file from same directory as current C4D document (using doc.GetDocumentPath() directly)
+- Auto-detect PLMXML file from working directory, which is initialized to C4D document directory (using doc.GetDocumentPath() directly)
 - Button management with OK on right, Cancel on left
 - No manual PLMXML file input field or browse button, auto-detection only
+- Global working directory variable used for all file operations eliminating path arithmetic
 - Dialog closes immediately on OK press
 - Progress feedback display
 - Results summary
@@ -161,7 +162,7 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 
 ### 4.1 Assembly Processing Overview
 ```
-1. PLMXML file auto-detected from current C4D file directory
+1. PLMXML file auto-detected from working directory (initialized to current C4D file directory)
 2. PLMXMLParser parses the XML file
 3. MaterialPropertyInference processes material definitions
 4. Cinema4DMaterialManager creates materials and handles deduplication
@@ -197,12 +198,12 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 
 ### 4.4 Build Assembly Tree Only Mode (Step 3)
 ```
-1. User selects \"Build Assembly Tree Only\" mode (auto-detects PLMXML file from C4D document directory)
+1. User selects \"Build Assembly Tree Only\" mode (auto-detects PLMXML file from working directory initialized to C4D document directory)
 2. PLMXMLParser extracts hierarchy data
 3. Create hidden container (_PLMXML_Geometries) for proxy objects
 4. For each JT file:
    a. Create null object with same name as JT file directly under _PLMXML_Geometries
-   b. Check if .rs proxy file exists in same directory as PLMXML file
+   b. Check if .rs proxy file exists in working directory
    c. If .rs file exists: Create Redshift Proxy object as child with just filename (no path)
    d. If .rs file missing: Create 5×5×5 meter cube as child
 5. Recreate original hierarchy in Assembly root using instance references
@@ -232,7 +233,7 @@ Scene Structure:
 ```
 
 ### 5.2 Caching Strategy
-- Cache geometry objects in dictionary with JT file path as key
+- Cache geometry objects in dictionary with JT file path as key (all files accessed through working directory)
 - Use weak references where possible to prevent memory leaks
 - Clean up temporary documents after each file processing
 - Implement object pooling for frequently created objects
