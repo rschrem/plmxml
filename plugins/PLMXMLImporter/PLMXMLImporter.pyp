@@ -1579,7 +1579,16 @@ class PLMXMLDialog(gui.GeDialog):
         doc = c4d.documents.GetActiveDocument()
         c4d_file_path = doc.GetDocumentPath()
         if c4d_file_path and os.path.exists(c4d_file_path):
-            self.working_directory = os.path.dirname(c4d_file_path)
+            # Check if c4d_file_path is a file or directory
+            if os.path.isfile(c4d_file_path):
+                # If it's a file, use its parent directory
+                self.working_directory = os.path.dirname(c4d_file_path)
+            elif os.path.isdir(c4d_file_path):
+                # If it's already a directory, use it directly
+                self.working_directory = c4d_file_path
+            else:
+                # Fallback case
+                self.working_directory = ""
         else:
             self.working_directory = ""
         
@@ -1593,8 +1602,8 @@ class PLMXMLDialog(gui.GeDialog):
         
         self.logger = Logger(default_log_path)
         
-        self.logger.log(f"🔧 Dialog initialized - C4D file: {c4d_file_path}", "INFO")
-        print(f"🔧 Dialog initialized - C4D file: {c4d_file_path}")
+        self.logger.log(f"🔧 Dialog initialized - C4D file path: {c4d_file_path}", "INFO")
+        print(f"🔧 Dialog initialized - C4D file path: {c4d_file_path}")
         self.logger.log(f"📂 Working directory set to: {self.working_directory}", "INFO")
         print(f"📂 Working directory set to: {self.working_directory}")
         
@@ -1661,7 +1670,7 @@ class PLMXMLDialog(gui.GeDialog):
             self.logger.log(f"🎬 Cinema 4D file path: {c4d_file_path}", "INFO")
             self.logger.log(f"📂 Working directory for search: {self.working_directory}", "INFO")
             
-            # Use the working directory to find PLMXML file
+            # Verify that the working directory exists
             if not self.working_directory or not os.path.exists(self.working_directory):
                 self.logger.log(f"❌ Working directory does not exist: {self.working_directory}", "ERROR")
                 c4d.gui.MessageDialog("Please save your Cinema 4D file first.")
