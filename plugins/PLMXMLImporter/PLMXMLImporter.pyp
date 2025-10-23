@@ -1580,18 +1580,20 @@ class PLMXMLDialog(gui.GeDialog):
         elif id == c4d.DLG_OK:
             # Find the PLMXML file in the same directory as the current C4D document
             doc = c4d.documents.GetActiveDocument()
-            doc_path = doc.GetDocumentPath()
-            doc_dir = os.path.dirname(doc_path) if doc_path else ""
+            doc_path = doc.GetDocumentPath()  # This returns the directory containing the C4D file, not the file itself
+            
+            # If no document path exists, show an error message
+            if not doc_path or doc_path == "":
+                self.Close()  # Close dialog immediately
+                c4d.gui.MessageDialog("Please save the Cinema 4D document first in the same folder as the PLMXML file.")
+                return True
+            
+            # Use the document path directory (which is the directory containing the C4D file)
+            doc_dir = doc_path
             
             # DEBUG: Print the document path and directory being checked
             print(f"DEBUG: Document path from GetDocumentPath(): '{doc_path}'")
             print(f"DEBUG: Directory being checked: '{doc_dir}'")
-            
-            # If no document path exists, show an error message
-            if not doc_dir:
-                self.Close()  # Close dialog immediately
-                c4d.gui.MessageDialog("Please save the Cinema 4D document first in the same folder as the PLMXML file.")
-                return True
             
             # DEBUG: List all files in the directory to help troubleshoot
             try:
