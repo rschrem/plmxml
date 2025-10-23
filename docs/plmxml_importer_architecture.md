@@ -196,10 +196,15 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 ```
 1. User selects PLMXML file and "Compile Redshift Proxies" mode
 2. PLMXMLParser extracts hierarchy data
-3. Create hidden container for proxy objects
-4. Create visible null objects to maintain hierarchy
-5. Link instances to proxy objects with transforms
-6. Handle missing proxy files with cube placeholders
+3. Create hidden container (_PLMXML_Geometries) for proxy objects
+4. For each JT file:
+   a. Create null object with same name as JT file directly under _PLMXML_Geometries
+   b. Check if .rs proxy file exists in same directory as PLMXML file
+   c. If .rs file exists: Create Redshift Proxy object as child with just filename (no path)
+   d. If .rs file missing: Create 5×5×5 meter cube as child
+5. Recreate original hierarchy in Assembly root using instance references
+6. Use instance references to Null objects in _PLMXML_Geometries tree for proper linking
+7. Handle missing proxy files with cube placeholders
 ```
 
 ## 5. Memory Management Architecture
@@ -208,13 +213,19 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 ```
 Scene Structure:
 ├── _PLMXML_Geometries (hidden container)
-│   ├── [Original] part1.jt  ← Actual geometry (stored once)
-│   └── [Original] part2.jt
+│   ├── A0009904738_1 (null object)
+│   │   └── A0009904738_1_RS_Proxy or Placeholder_Cube  ← Either RS Proxy or 5×5×5m cube
+│   ├── A2237304410_31 (null object)
+│   │   └── A2237304410_31_RS_Proxy or Placeholder_Cube
+│   ├── A2237308001_30 (null object)
+│   │   └── A2237308001_30_RS_Proxy or Placeholder_Cube
+│   └── A2237308001_13 (null object)
+│       └── A2237308001_13_RS_Proxy or Placeholder_Cube
 └── Assembly (visible hierarchy)
     ├── Component_A
-    │   └── part1.jt (Instance) ← References original with transform
+    │   └── A0009904738_1_Instance  ← Instance references Null object in _PLMXML_Geometries
     └── Component_B
-        └── part1.jt (Instance) ← References same original with different transform
+        └── A0009904738_1_Instance  ← References same Null object with different transform
 ```
 
 ### 5.2 Caching Strategy
@@ -257,13 +268,24 @@ Scene Structure:
 
 ### 8.1 Cinema 4D Integration
 - Uses standard Cinema 4D Python API
-- Compatible with Cinema 4D 2025
+- Compatible with Cinema 4D 2025 (specifically tested with command ID 1038650 for RS Proxy export)
 - Leverages native JT import functionality
+- Properly handles Redshift plugin integration (plugin ID: 1036223)
+- Uses correct Redshift Proxy Object plugin ID (1038649) for proxy creation
+- Implements proper dialog integration with c4d.DLG_OK and c4d.DLG_CANCEL
+- Follows Cinema 4D 2025 UI conventions and best practices
+- Handles object insertion order correctly (InsertObject first, then InsertUnder)
+- Uses proper Redshift parameter IDs (c4d.REDSHIFT_PROXY_FILE, c4d.REDSHIFT_PROXY_MODE)
 
 ### 8.2 Redshift Integration
-- Creates .rs proxy files for Redshift
-- Implements proxy referencing system
+- Creates .rs proxy files for Redshift using proper Cinema 4D 2025 command (1038650)
+- Implements proxy referencing system with proper RS Proxy objects (plugin ID: 1038649)
 - Maintains compatibility with Redshift rendering pipeline
+- Uses c4d.REDSHIFT_PROXY_FILE parameter for proxy file assignment
+- Handles Redshift plugin detection with fallback to placeholder cubes (plugin ID: 1036223)
+- Creates 5×5×5 meter placeholder cubes when .rs files are missing
+- Properly sets proxy file paths with just filename (no full path)
+- Uses proper Redshift plugin IDs for compatibility with Cinema 4D 2025
 
 ### 8.3 File System Integration
 - Cross-platform file path handling
