@@ -1551,8 +1551,8 @@ class PLMXMLDialog(gui.GeDialog):
         
         # Buttons
         self.GroupBegin(0, c4d.BFH_CENTER, cols=2)
-        self.AddButton(c4d.DLG_OK, c4d.BFH_LEFT, name="OK")
-        self.AddButton(c4d.DLG_CANCEL, c4d.BFH_RIGHT, name="Cancel")
+        self.AddButton(c4d.DLG_CANCEL, c4d.BFH_LEFT, name="Cancel")
+        self.AddButton(c4d.DLG_OK, c4d.BFH_RIGHT, name="OK")
         self.GroupEnd()
         
         return True
@@ -1606,7 +1606,10 @@ class PLMXMLDialog(gui.GeDialog):
             # Set the path to the found PLMXML file
             self.plmxml_path = os.path.join(doc_dir, plmxml_file)
             
-            # Run import process directly without closing dialog first (to maintain context)
+            # Close the dialog first to indicate that the process is starting
+            self.Close()
+            
+            # Run import process
             self._run_import_process()
             return True
         

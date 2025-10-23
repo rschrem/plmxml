@@ -47,35 +47,28 @@ Geometry Handling
 * Apply instance transforms correctly using SetMg() method
 
 Import Modes
-1. Material Extraction Only
+1. Step 1: Material Extraction Only
    * Parse PLMXML and extract all materials
    * Create materials in Cinema 4D document
    * Remove all geometry after material extraction
    * Save document after each file processing
    * Create complete material library with NO geometry
 
-2. Create Redshift Proxies
+2. Step 2: Create Redshift Proxies Only
    * Parse PLMXML and load each JT file temporarily
    * Replace loaded materials with closest fitting material in open Cinema 4D file
    * Export loaded geometry as Redshift proxy (.rs file)
    * Immediately delete geometry after Redshift proxy export
    * Progress tracking with detailed statistics
 
-3. Compile Redshift Proxies
+3. Step 3: Build Assembly Tree Only
+   * Auto-detect PLMXML file from same directory as current C4D document
    * Parse PLMXML and create null object hierarchy in _PLMXML_Geometries container
    * For each JT file, create null object with same name directly under _PLMXML_Geometries
    * Check if .rs proxy file exists in same directory as PLMXML file
    * If .rs file exists: Create Redshift Proxy object as child with just filename (no path)
    * If .rs file doesn't exist: Create 5×5×5 meter cube as child
    * Recreate original hierarchy in Assembly root using instance references
-
-4. Full Assembly Import
-   * Parse PLMXML and load all JT files with full geometry
-   * Maintain complete hierarchy with proper parent-child relationships
-   * Apply proper transforms using row-major to column-major matrix conversion
-   * Create and apply materials to all geometry objects
-   * Implement geometry instancing for memory optimization
-   * Preserve user data from PLMXML files
 
 ## 3. NON-FUNCTIONAL REQUIREMENTS
 Performance
@@ -92,9 +85,10 @@ Reliability
 
 Usability
 * Provide clear progress feedback and meaningful error messages
-* Support intuitive mode selection with radio buttons
-* Maintain familiar Cinema 4D UI conventions
-* Offer browse functionality for PLMXML file selection
+* Support intuitive mode selection with three step-by-step radio buttons (Step 1: Material Extraction Only, Step 2: Create Redshift Proxies Only, Step 3: Build Assembly Tree Only)
+* Maintain familiar Cinema 4D UI conventions with Cancel button on left, OK button on right
+* Auto-detect PLMXML file from same directory as current C4D document (no manual file selection)
+* Dialog closes immediately when OK is pressed before starting import process
 
 Compatibility
 * Full compatibility with Cinema 4D 2025

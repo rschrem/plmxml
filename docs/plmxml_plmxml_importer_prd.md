@@ -45,22 +45,19 @@ Create a robust, efficient, and reliable solution for importing complex PLMXML a
 
 ### 3.2 User Stories
 
-**Story 1: Full Assembly Import**
-- As a Technical Artist, I want to import a complete PLMXML assembly file with full hierarchy preservation so that I can work with the complete Mercedes-Benz assembly in Cinema 4D.
-
-**Story 2: Material Extraction**
+**Story 1: Material Extraction Only (Step 1)**
 - As a 3D Artist, I want to extract all materials from referenced JT files without importing geometry so that I can build a complete material library for my project.
 
-**Story 3: Redshift Proxy Creation**
+**Story 2: Create Redshift Proxies Only (Step 2)**
 - As a Technical Artist, I want to create Redshift proxy files from my JT files so that I can efficiently work with large assemblies in Redshift.
 
-**Story 4: Redshift Assembly Compilation**
-- As a Technical Artist, I want to compile an assembly using Redshift proxies with preserved hierarchy so that I can achieve optimal performance with large assemblies.
+**Story 3: Build Assembly Tree Only (Step 3)**
+- As a Technical Artist, I want to compile an assembly using existing Redshift proxies with preserved hierarchy so that I can achieve optimal performance with large assemblies.
 
 ### 3.3 Functional Requirements
 
 #### 3.3.1 Import Modes
-- **FR-001**: Plugin shall support four distinct operation modes: Material Extraction, Redshift Proxy Creation, Redshift Proxy Compilation, and Assembly Compilation
+- **FR-001**: Plugin shall support three distinct operation modes: Material Extraction (Step 1), Redshift Proxy Creation (Step 2), and Build Assembly Tree Only (Step 3)
 - **FR-002**: Plugin shall present a radio button dialog at startup to select the operation mode
 - **FR-003**: Plugin shall maintain separate execution paths for each mode with specific functionality
 
@@ -193,8 +190,7 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - The plugin creates separate log files for each mode: `importPlmxml_{Step}_log.txt`
   - Mode 1 (Material Extraction): `importPlmxml_1_log.txt`
   - Mode 2 (Create Redshift Proxies): `importPlmxml_2_log.txt`
-  - Mode 3 (Compile Redshift Proxies): `importPlmxml_3_log.txt`
-  - Mode 4 (Full Assembly): `importPlmxml_4_log.txt`
+  - Mode 3 (Build Assembly Tree Only): `importPlmxml_3_log.txt`
 - All logs are created in the same directory as the selected PLMXML file
 - Logs provide dual output to both console (Cinema 4D Command Line) and file for debugging
 
@@ -217,6 +213,10 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Modal Dialog Behavior**: Correct handling of modal dialogs with proper context
 - **UI Refresh**: Call c4d.EventAdd() after import completion to refresh Cinema 4D interface
 - **Button Management**: Proper ID management to prevent conflicts between buttons and other controls
+- **Step-by-Step Workflow**: Three mutually exclusive radio buttons for Step 1 (Material Extraction Only), Step 2 (Create Redshift Proxies Only), Step 3 (Build Assembly Tree Only)
+- **Auto-Detection**: PLMXML file auto-detected from same directory as current C4D document (no manual file selection)
+- **Button Order**: Cancel on the left, OK on the right (opposite to default)
+- **Dialog Closure**: Dialog closes immediately when OK is pressed before starting import process
 
 ### 8.6 Error Handling and Robustness
 - **API Error Prevention**: Handle Cinema 4D API incompatibilities gracefully
@@ -224,7 +224,7 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Fallback Strategies**: Multiple strategies for material reuse and creation
 - **Comprehensive Logging**: Detailed logging for troubleshooting and debugging
 
-### 8.7 Redshift Proxy Compilation Workflow (Step 3 Implementation)
+### 8.8 Redshift Proxy Compilation Workflow (Step 3: Build Assembly Tree Only Implementation)
 - **Single Directory Requirement**: All files (.plmxml, .stpx, .c4d, .jt, .rs) are in the same directory
 - **Hidden Geometry Container**: Create `_PLMXML_Geometries` null object to contain all geometry references
 - **Per-JT File Nodes**: Create null objects named after each JT file directly under `_PLMXML_Geometries`
@@ -238,6 +238,7 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Proper Redshift API**: Use `c4d.REDSHIFT_PROXY_FILE` parameter for proper proxy file assignment
 - **Redshift Plugin ID**: Use 1038649 (com.redshift3d.redshift4c4d.proxyloader) for proper plugin identification
 
-### 8.8 Version Information
+### 8.9 Version Information
 - **Current Version**: 3.1 (updated from initial 3.0)
 - **Major Improvements**: Material verification and reuse, keyword detection, API compatibility fixes, dialog improvements, Redshift proxy compilation workflow
+- **Version 3.2 Updates**: Step-by-step workflow with 3 modes (Material Extraction Only, Create Redshift Proxies Only, Build Assembly Tree Only), auto-detection of PLMXML file from C4D document directory, updated UI with swapped OK/Cancel buttons, immediate dialog closure on OK press
