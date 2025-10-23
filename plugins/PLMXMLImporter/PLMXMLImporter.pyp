@@ -1450,11 +1450,9 @@ class Cinema4DImporter:
                             redshift_constant = getattr(c4d, 'REDSHIFT_PROXY_FILE')
                             self.logger.log(f"🔍 Redshift proxy file constant: {redshift_constant} (type: {type(redshift_constant)})", "INFO")
                             
-                            # Use SetParameter method which is more reliable for plugin parameters
-                            proxy_file_obj = c4d.Filename(proxy_filename_only)
-                            self.logger.log(f"🔍 Created c4d.Filename object: {proxy_filename_only} (type: {type(proxy_file_obj)})", "INFO")
-                            self.logger.log(f"🔍 Attempting to set Redshift proxy file property: {proxy_filename_only}", "INFO")
-                            success = proxy_obj.SetParameter(redshift_constant, proxy_file_obj, c4d.DESCFLAGS_SET_0)
+                            # Try setting the parameter directly as a string
+                            self.logger.log(f"🔍 Attempting to set Redshift proxy file property as string: {proxy_filename_only}", "INFO")
+                            success = proxy_obj.SetParameter(redshift_constant, proxy_filename_only, c4d.DESCFLAGS_SET_0)
                             self.logger.log(f"🔍 Redshift proxy file property setting result: {success}", "INFO")
                             if not success:
                                 self.logger.log(f"⚠ Redshift proxy file property setting returned False for: {proxy_filename_only}", "WARNING")
