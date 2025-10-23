@@ -1439,15 +1439,23 @@ class Cinema4DImporter:
                 if proxy_obj:
                     # Set the proxy file path (just the filename, not full path, as per requirements)
                     proxy_filename_only = os.path.basename(proxy_path)
-                    try:
-                        proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_filename_only
-                    except:
-                        # Fallback if parameter ID doesn't work
+                    # Check if Redshift parameter ID exists before using it
+                    if hasattr(c4d, 'REDSHIFT_PROXY_FILE'):
                         try:
-                            # Use alternative approach if possible
+                            # Try setting the Redshift proxy file parameter using its specific ID
+                            proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_filename_only
+                        except TypeError:
+                            # If there's a type error (most likely case from original error), set as name only
                             proxy_obj.SetName(proxy_filename)
+                            self.logger.log(f"ℹ Redshift proxy file type error, using proxy with name: {proxy_filename}", "INFO")
                         except:
-                            proxy_obj.SetName("RedshiftProxy")
+                            # Other errors - fallback to name
+                            proxy_obj.SetName(proxy_filename)
+                            self.logger.log(f"⚠ Redshift proxy parameter error, using name: {proxy_filename}", "WARNING")
+                    else:
+                        # If Redshift constant doesn't exist, just set the name
+                        proxy_obj.SetName(proxy_filename)
+                        self.logger.log(f"ℹ Redshift parameter ID not available, using proxy with name: {proxy_filename}", "INFO")
                     proxy_obj.SetName(proxy_filename)
                     
                     doc.InsertObject(proxy_obj)  # Insert into document first
