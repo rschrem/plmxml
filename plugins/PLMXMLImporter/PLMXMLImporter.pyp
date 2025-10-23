@@ -175,6 +175,40 @@ class MaterialPropertyInference:
             props['base_color'] = metal_colors[mat_term.lower()]
         elif mat_group and mat_group.lower() in metal_colors:
             props['base_color'] = metal_colors[mat_group.lower()]
+        else:
+            # Distinguish between different steel grades by varying the color slightly based on grade number
+            # Extract numeric grade from material number if it exists
+            import re
+            grade_number = None
+            
+            # Check mat_term and mat_group for grade numbers (like "1.4016", "-1.0338", etc.)
+            if mat_term:
+                grade_match = re.search(r'([0-9]+\.?[0-9]*)', mat_term.replace('-', ''))
+                if grade_match:
+                    try:
+                        grade_number = float(grade_match.group(1))
+                    except ValueError:
+                        pass
+            
+            if not grade_number and mat_group:
+                grade_match = re.search(r'([0-9]+\.?[0-9]*)', mat_group.replace('-', ''))
+                if grade_match:
+                    try:
+                        grade_number = float(grade_match.group(1))
+                    except ValueError:
+                        pass
+            
+            # If we have a grade number, adjust the color slightly to distinguish different grades
+            if grade_number is not None:
+                # Use the grade number to create a slight color variation
+                # This is a simple algorithm to create variation in the steel color
+                variation_factor = (grade_number % 30) * 0.01  # Create subtle variation based on grade
+                base_r, base_g, base_b = 0.72, 0.72, 0.75
+                props['base_color'] = c4d.Vector(
+                    min(1.0, max(0.0, base_r + variation_factor * 0.1)),
+                    min(1.0, max(0.0, base_g + variation_factor * 0.05)),
+                    min(1.0, max(0.0, base_b + variation_factor * 0.15))
+                )
         
         return props
     
@@ -332,7 +366,8 @@ class Cinema4DMaterialManager:
                     # Metallic material - use colored reflection
                     mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = props['base_color']
                     mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS] = props['roughness']
-                    mat[layer_id + c4d.REFLECTION_LAYER_MAIN_SHADER] = 0  # Standard
+                    # Set reflection strength for metals (high reflectivity)
+                    mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION] = 1.0
                     # For metals, set fresnel to conductor mode if supported
                     try:
                         mat[layer_id + c4d.REFLECTION_LAYER_MAIN_FRESNEL_MODE] = 1  # Conductor
@@ -340,9 +375,10 @@ class Cinema4DMaterialManager:
                         pass  # Some versions don't support this parameter
                 else:
                     # Non-metallic material - keep reflections subtle and colorless
-                    mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = c4d.Vector(1, 1, 1)  # White reflection
+                    mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = c4d.Vector(0.8, 0.8, 0.8)  # Subtle white reflection
                     mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS] = props['roughness']
-                    mat[layer_id + c4d.REFLECTION_LAYER_MAIN_SHADER] = 0  # Standard
+                    # Set moderate reflection strength for non-metals
+                    mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION] = 0.3  # Lower reflectivity than metals
                     # For non-metals, use dielectric fresnel (default)
                     try:
                         mat[layer_id + c4d.REFLECTION_LAYER_MAIN_FRESNEL_MODE] = 0  # Dielectric
@@ -351,8 +387,8 @@ class Cinema4DMaterialManager:
                     
                     # For rubber/elastomer materials with high roughness, reflections should be very subtle
                     if props['roughness'] > 0.7:
-                        # Reduce reflection strength for very rough materials
-                        mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION] = 0.1  # Lower reflection strength
+                        # Reduce reflection strength significantly for very rough materials
+                        mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION] = 0.05  # Very low reflection strength
         except Exception as e:
             self.logger.log(f"Reflection layer setup error: {str(e)}", "WARNING")
         
@@ -676,7 +712,7 @@ class GeometryInstanceManager:
         if not os.path.exists(jt_path):
             self.logger.log(f"✗ File not found: {jt_path}", "ERROR")
             # Create placeholder
-            obj = self._create_placeholder_cube(10000.0)  # 10m cube for missing files
+            obj = self._create_placeholder_cube()
             obj.SetName(f"Placeholder_{os.path.basename(jt_path)}")
             self.logger.log(f"🟦 Created placeholder for missing file: {os.path.basename(jt_path)}")
             return obj
@@ -699,7 +735,7 @@ class GeometryInstanceManager:
         if not load_success:
             self.logger.log(f"✗ Failed to load JT file: {jt_path}", "ERROR")
             # Create placeholder
-            obj = self._create_placeholder_cube(10000.0)  # 10m cube for failed loads
+            obj = self._create_placeholder_cube()
             obj.SetName(f"Placeholder_{os.path.basename(jt_path)}")
             self.logger.log(f"🟦 Created placeholder for failed load: {os.path.basename(jt_path)}")
             return obj
@@ -712,7 +748,7 @@ class GeometryInstanceManager:
         temp_obj = temp_doc.GetFirstObject()
         if temp_obj is None:
             self.logger.log(f"⚠ No geometry found in JT file: {jt_path}", "WARNING")
-            obj = self._create_placeholder_cube(10000.0)  # 10m cube for empty placeholders
+            obj = self._create_placeholder_cube()
             obj.SetName(f"EmptyPlaceholder_{os.path.basename(jt_path)}")
             return obj
         
@@ -720,7 +756,7 @@ class GeometryInstanceManager:
         cloned_obj = temp_obj.GetClone(c4d.COPYFLAGS_NONE)
         if cloned_obj is None:
             self.logger.log(f"✗ Failed to clone geometry from: {jt_path}", "ERROR")
-            return self._create_placeholder_cube(10000.0)  # 10m cube for clone failure
+            return self._create_placeholder_cube()
         
         # Add to hidden container to keep original geometry
         hidden_container = self.get_or_create_hidden_container(doc)
@@ -747,12 +783,12 @@ class GeometryInstanceManager:
             self.logger.log(f"⚠ Incremental save failed: {str(e)}", "WARNING")
             return False
     
-    def _create_placeholder_cube(self, size=10000.0):
-        """Create a cube placeholder with specified size for missing JT files"""
+    def _create_placeholder_cube(self):
+        """Create a 10m cube placeholder for missing JT files"""
         cube = c4d.BaseObject(c4d.Ocube)
         if cube is None:
             return None
-        cube[c4d.PRIM_CUBE_LEN] = c4d.Vector(size, size, size)  # Size in Cinema 4D units (cm)
+        cube[c4d.PRIM_CUBE_LEN] = c4d.Vector(10000, 10000, 10000)  # 10m in Cinema 4D units
         return cube
     
     def _count_polygons_in_document(self, doc):
@@ -817,17 +853,15 @@ class GeometryInstanceManager:
 class Cinema4DImporter:
     """Hierarchy building and user data management"""
     
-    def __init__(self, logger, material_manager, geometry_manager, plmxml_path=None):
+    def __init__(self, logger, material_manager, geometry_manager):
         self.logger = logger
         self.material_manager = material_manager
         self.geometry_manager = geometry_manager
-        self.plmxml_path = plmxml_path  # Store the PLMXML file path for proper path resolution
         self.total_polygons = 0
         self.total_materials = 0
         self.total_files_processed = 0
         self.files_since_last_save = 0
         self.save_interval = 5  # Save every 5 files
-        self.selected_mode = 0  # Default to assembly mode
     
     def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None):
         """Build the Cinema 4D scene hierarchy from parsed data"""
@@ -835,9 +869,7 @@ class Cinema4DImporter:
         MaterialPropertyInference.unknown_keywords.clear()
         
         # Store the PLMXML file path to help resolve relative JT file paths
-        # Use the passed parameter or fall back to instance variable
-        self.plmxml_path = plmxml_file_path if plmxml_file_path else getattr(self, 'plmxml_file_path', None)
-        self.logger.log(f"📁 PLMXML file path set to: {self.plmxml_path}")
+        self.plmxml_file_path = plmxml_file_path
         
         self.logger.log("="*80)
         self.logger.log("🏗️  Starting hierarchy building process")
@@ -932,13 +964,16 @@ class Cinema4DImporter:
             material_properties = jt_data['material_properties']
             
             # Get full path to JT file (relative to PLMXML file directory)
-            if hasattr(self, 'plmxml_path') and self.plmxml_path:
-                plmxml_dir = os.path.dirname(self.plmxml_path)
+            if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path:
+                plmxml_dir = os.path.dirname(self.plmxml_file_path)
                 jt_full_path = os.path.join(plmxml_dir, jt_file)
             else:
                 # Fallback to document path if PLMXML path not available
                 plmxml_dir = os.path.dirname(doc.GetDocumentPath()) if doc.GetDocumentPath() else ""
                 jt_full_path = os.path.join(plmxml_dir, jt_file) if plmxml_dir else jt_file
+            
+            # Log the directory where we're searching for JT files
+            self.logger.log(f"🔍 Searching for JT file '{jt_file}' in directory: {plmxml_dir}", "INFO")
             
             # Mode-specific processing
             if mode == "material_extraction":
@@ -947,8 +982,8 @@ class Cinema4DImporter:
             elif mode == "create_redshift_proxies":
                 # Create redshift proxies
                 self._process_redshift_proxy_creation(jt_full_path, null_obj, material_properties, doc)
-            elif mode == "build_assembly_tree_only":
-                # Build assembly using existing redshift proxies
+            elif mode == "compile_redshift_proxies":
+                # Compile assembly using existing redshift proxies
                 self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc)
             else:
                 # Default: load geometry and create instances
@@ -980,11 +1015,8 @@ class Cinema4DImporter:
         # Increment files since last save counter
         self.files_since_last_save += 1
         
-        # Perform incremental save if needed
-        if self.files_since_last_save >= self.save_interval:
-            self.logger.log("⏳ Performing incremental save...")
-            self._perform_incremental_save(doc)
-            self.files_since_last_save = 0  # Reset counter
+        # Skip incremental save in material extraction mode, just reset counter
+        self.files_since_last_save = 0  # Reset counter to prevent incremental saves during material extraction
     
     def _process_redshift_proxy_creation(self, jt_path, parent_obj, material_properties, doc):
         """Process redshift proxy creation"""
@@ -992,22 +1024,27 @@ class Cinema4DImporter:
         
         # Check if Redshift is available
         try:
-            # NOTE: Don't use 'import c4d.plugins' here as it creates a local c4d variable that shadows the global c4d module
+            import c4d.plugins
             # Redshift plugin ID may vary by version, try the most common one
             redshift_plugin_ids = [1036223, 1001059]  # Common Redshift plugin IDs
             redshift_plugin = None
+            found_plugin_id = None
             
             for plugin_id in redshift_plugin_ids:
                 redshift_plugin = c4d.plugins.FindPlugin(plugin_id)
                 if redshift_plugin is not None:
+                    found_plugin_id = plugin_id
+                    self.logger.log(f"✓ Redshift plugin found with ID: {plugin_id}")
                     break
             
             if redshift_plugin is None:
                 self.logger.log("⚠ Redshift not found, skipping proxy creation", "WARNING")
                 self.total_files_processed += 1
                 return
-        except:
-            self.logger.log("⚠ Could not access Redshift, skipping proxy creation", "WARNING")
+            else:
+                self.logger.log(f"✓ Using Redshift plugin ID: {found_plugin_id}")
+        except Exception as e:
+            self.logger.log(f"⚠ Could not access Redshift: {str(e)}, skipping proxy creation", "WARNING")
             self.total_files_processed += 1
             return
         
@@ -1080,15 +1117,12 @@ class Cinema4DImporter:
             self._replace_materials_with_closest_match(processing_obj, material_properties, doc)
         
         # Determine the output path for the Redshift proxy
-        # Use the PLMXML file directory, not the document directory
-        plmxml_dir = os.path.dirname(self.plmxml_path) if hasattr(self, 'plmxml_path') and self.plmxml_path else os.path.dirname(jt_path)
+        # Use the PLMXML file directory, not the active document directory
+        plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
         # Use .rs extension as intended for Redshift proxies
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(plmxml_dir, proxy_filename)
         self.logger.log(f"📁 Proxy output path: {proxy_path}")
-        self.logger.log(f"📁 PLMXML directory: {plmxml_dir}")
-        self.logger.log(f"📁 JT path: {jt_path}")
-        self.logger.log(f"📁 Self.plmxml_file_path: {getattr(self, 'plmxml_file_path', 'NOT SET')}")
         
         # Use Redshift's proxy export functionality
         try:
@@ -1097,78 +1131,130 @@ class Cinema4DImporter:
             proxy_obj_clone = processing_obj.GetClone(c4d.COPYFLAGS_0)
             proxy_doc.InsertObject(proxy_obj_clone)
             
-            # In Cinema 4D 2025, the command 1038650 is for "RS Proxy (*.rs)" export
-            # Since SaveDocument might not have a direct RS format, we'll try using the command approach
-            # First, save the proxy document to a temporary location and then convert it
+            # Try to use Redshift's Python API for non-interactive proxy export
+            try:
+                import redshift
+                
+                # Create or get a Redshift renderer accessor
+                rs_renderer = redshift.Renderer.Redshift()
+                
+                # Setup export settings
+                settings = redshift.ProxyExportSettings()
+                
+                settings.exportSelectionOnly = False
+                settings.exportAnimations = False
+                settings.filePath = proxy_path
+                settings.exportMaterials = True
+                settings.exportInstances = True
+                settings.embedTextures = False
+                
+                # Get the active document to use with Redshift export
+                active_doc = c4d.documents.GetActiveDocument()
+                
+                # Call the export method - this should work non-interactively
+                success = rs_renderer.ExportProxy(active_doc, proxy_obj_clone, settings)
+                
+                if success:
+                    self.logger.log(f"✓ Redshift proxy exported using Redshift Python API: {proxy_path}")
+                else:
+                    self.logger.log(f"⚠ Redshift Python API export failed for {proxy_path}, trying fallback methods", "WARNING")
+                    raise RuntimeError("Redshift API export failed")
+                    
+            except ImportError:
+                self.logger.log("ℹ Redshift Python module not available, using fallback export methods", "INFO")
+                # Fall back to the previous approach
+                self._export_redshift_proxy_fallback(proxy_doc, proxy_path, proxy_obj_clone)
+            except Exception as e:
+                self.logger.log(f"⚠ Redshift Python API export failed: {str(e)}, trying fallback methods", "WARNING")
+                # Fall back to the previous approach
+                self._export_redshift_proxy_fallback(proxy_doc, proxy_path, proxy_obj_clone)
+        
+        except Exception as e:
+            self.logger.log(f"✗ Error creating Redshift proxy: {str(e)}", "ERROR")
+    
+    def _export_redshift_proxy_fallback(self, proxy_doc, proxy_path, proxy_obj_clone):
+        """Fallback method for Redshift proxy export when Python API is not available"""
+        try:
+            # In Cinema 4D 2025, we need to save Redshift proxies without user interaction
+            # The command 1038650 prompts user for file location, so we'll use SaveDocument instead
             
-            # Save the proxy document to the .rs path directly
-            # Check if there's an RS format for SaveDocument in Cinema 4D 2025
+            # First, check if there's a specific RS format for SaveDocument in Cinema 4D 2025
             rs_format_id = getattr(c4d, 'FORMAT_RS', None)
+            self.logger.log(f"🔍 FORMAT_RS available: {rs_format_id}")
+            
+            # Also check for other available Redshift format IDs
+            redshift_format_ids = {}
+            for attr_name in dir(c4d):
+                if 'REDSHIFT' in attr_name.upper() or 'RS' in attr_name.upper():
+                    try:
+                        attr_value = getattr(c4d, attr_name)
+                        if isinstance(attr_value, int) and attr_value > 1000000:  # Likely a format ID
+                            redshift_format_ids[attr_name] = attr_value
+                    except:
+                        pass
+            
+            if redshift_format_ids:
+                self.logger.log(f"🔍 Available Redshift-related format IDs: {redshift_format_ids}")
+            else:
+                self.logger.log("🔍 No Redshift-related format IDs found in c4d module")
+            
             if rs_format_id:
+                self.logger.log(f"⏳ Attempting direct RS format save: {rs_format_id}")
                 # Try to save directly as RS format if it's available
                 if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, rs_format_id):
                     self.logger.log(f"✓ Redshift proxy exported to: {proxy_path}")
                 else:
-                    # If direct RS save fails, try the command approach
-                    # Store original document to restore later
-                    original_doc = c4d.documents.GetActiveDocument()
-                    
-                    try:
-                        # Set our proxy document as the active document
-                        c4d.documents.SetActiveDocument(proxy_doc)
-                        
-                        # Call the Redshift proxy command which should save it as .rs
-                        success_call = c4d.CallCommand(1038650)  # RS Proxy (*.rs)
-                        
-                        if success_call:
-                            self.logger.log(f"✓ Redshift proxy exported via command to: {proxy_path}")
-                        else:
-                            self.logger.log(f"⚠ Command approach failed for {proxy_path}, trying .c4d fallback", "WARNING")
-                            # Fallback: save as .c4d if the command fails
-                            proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
-                            if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
-                                self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
-                                self.logger.log(f"ℹ For Redshift use: Convert {os.path.basename(proxy_c4d_path)} to {os.path.basename(proxy_path)} manually")
-                            else:
-                                self.logger.log(f"✗ Failed to save proxy file for: {jt_path}", "ERROR")
-                    finally:
-                        # Always restore the original active document
-                        if original_doc:
-                            c4d.documents.SetActiveDocument(original_doc)
-            else:
-                # No direct RS format available, try the command approach
-                original_doc = c4d.documents.GetActiveDocument()
-                
-                try:
-                    # Set our proxy document as the active document
-                    c4d.documents.SetActiveDocument(proxy_doc)
-                    
-                    # Call the Redshift proxy command
-                    success_call = c4d.CallCommand(1038650)  # RS Proxy (*.rs)
-                    
-                    if success_call:
-                        self.logger.log(f"✓ Redshift proxy exported via command to: {proxy_path}")
+                    self.logger.log(f"⚠ Direct RS format save failed for {proxy_path}, trying .c4d fallback", "WARNING")
+                    # Fallback: save as .c4d if the RS format save fails
+                    proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
+                    if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
+                        self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
+                        self.logger.log(f"ℹ For Redshift use: Convert {os.path.basename(proxy_c4d_path)} to {os.path.basename(proxy_path)} manually or use Redshift proxy conversion")
                     else:
-                        # Fallback: save as .c4d if the command fails
+                        self.logger.log(f"✗ Failed to save proxy file", "ERROR")
+            else:
+                # No direct RS format available in this Cinema 4D version
+                # Check if there are other Redshift-specific format IDs we can use
+                # Try common Redshift format IDs that might be available
+                redshift_formats = [
+                    getattr(c4d, 'FORMAT_REDSHIFT_PROXY', 0),
+                    getattr(c4d, 'FORMAT_REDSHIFT_RS', 0),
+                    getattr(c4d, 'FORMAT_RS', 0),
+                    1036224,  # Common Redshift proxy format ID
+                    1038650   # Redshift RS Proxy command ID (sometimes used as format)
+                ]
+                
+                saved_successfully = False
+                for i, format_id in enumerate(redshift_formats):
+                    if format_id and format_id != 0:
+                        self.logger.log(f"⏳ Trying Redshift format {i+1}/{len(redshift_formats)}: {format_id}")
+                        if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
+                            self.logger.log(f"✓ Redshift proxy exported to: {proxy_path} (format: {format_id})")
+                            saved_successfully = True
+                            break
+                        else:
+                            self.logger.log(f"⚠ Redshift format {format_id} failed")
+                
+                if not saved_successfully:
+                    # Try one more approach - save as .c4d to the intended .rs location
+                    # Sometimes Redshift can work with .c4d files that are renamed to .rs
+                    self.logger.log(f"ℹ Redshift format not available, trying direct .rs save as .c4d format", "INFO")
+                    if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
+                        self.logger.log(f"✓ Object saved with .rs extension using .c4d format: {proxy_path}")
+                        self.logger.log(f"ℹ This .rs file contains .c4d data that Redshift can reference")
+                    else:
+                        # Final fallback: save as .c4d with clear naming
                         proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
+                        self.logger.log(f"ℹ Trying final fallback to .c4d: {proxy_c4d_path}")
                         if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
                             self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
-                            self.logger.log(f"ℹ For Redshift use: Convert {os.path.basename(proxy_c4d_path)} to {os.path.basename(proxy_path)} manually")
+                            self.logger.log(f"ℹ For Redshift proxy: Load {os.path.basename(proxy_c4d_path)} in Cinema 4D and use Redshift's proxy creation tools or rename to .rs")
                         else:
-                            self.logger.log(f"✗ Failed to save proxy file for: {jt_path}", "ERROR")
-                finally:
-                    # Always restore the original active document
-                    if original_doc:
-                        c4d.documents.SetActiveDocument(original_doc)
-        
+                            self.logger.log(f"✗ Failed to save proxy file", "ERROR")
         except Exception as e:
-            self.logger.log(f"✗ Error creating Redshift proxy: {str(e)}", "ERROR")
+            self.logger.log(f"✗ Fallback Redshift proxy export failed: {str(e)}", "ERROR")
         
-        # Clean up the temporary document
-        temp_doc = None  # Allow garbage collection
-        proxy_doc = None  # Allow garbage collection
-        
-        self.logger.log(f"✓ Redshift proxy created for: {os.path.basename(jt_path)}")
+        self.logger.log(f"✓ Redshift proxy processing completed for: {os.path.basename(proxy_path)}")
         self.total_files_processed += 1
         
         # Increment files since last save counter
@@ -1177,7 +1263,7 @@ class Cinema4DImporter:
         # Perform incremental save if needed
         if self.files_since_last_save >= self.save_interval:
             self.logger.log("⏳ Performing incremental save...")
-            self._perform_incremental_save(doc)
+            self.geometry_manager._perform_incremental_save(doc)
             self.files_since_last_save = 0  # Reset counter
     
     def _replace_materials_with_closest_match(self, obj, material_properties, doc):
@@ -1296,7 +1382,7 @@ class Cinema4DImporter:
         # Perform incremental save if needed
         if self.files_since_last_save >= self.save_interval:
             self.logger.log("⏳ Performing incremental save...")
-            self._perform_incremental_save(doc)
+            self.geometry_manager._perform_incremental_save(doc)
             self.files_since_last_save = 0  # Reset counter
     
     def _process_compile_redshift_proxies(self, jt_path, parent_obj, material_properties, doc):
@@ -1323,7 +1409,7 @@ class Cinema4DImporter:
         
         # Check if proxy file exists
         # Use the PLMXML file directory, not the document directory or JT path directory
-        plmxml_dir = os.path.dirname(self.plmxml_path) if hasattr(self, 'plmxml_path') and self.plmxml_path else os.path.dirname(jt_path)
+        plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(plmxml_dir, proxy_filename)
         
@@ -1331,7 +1417,7 @@ class Cinema4DImporter:
         self.logger.log(f"📁 Checking for proxy: {proxy_path} (exists: {proxy_exists})")
         self.logger.log(f"📁 PLMXML directory: {plmxml_dir}")
         self.logger.log(f"📁 JT path: {jt_path}")
-        self.logger.log(f"📁 Self.plmxml_path: {getattr(self, 'plmxml_path', 'NOT SET')}")
+        self.logger.log(f"📁 Self.plmxml_file_path: {getattr(self, 'plmxml_file_path', 'NOT SET')}")
         
         # If proxy doesn't exist, also log the directory contents for debugging
         if not proxy_exists:
@@ -1354,18 +1440,32 @@ class Cinema4DImporter:
         # Create proxy object (or placeholder if proxy doesn't exist) as a child of the JT null object
         if proxy_exists:
             # Create Redshift proxy object (Redshift is assumed to be available)
-            proxy_obj = self._create_redshift_proxy_object(proxy_path, proxy_filename, jt_name, doc)
-            if proxy_obj:
-                doc.InsertObject(proxy_obj)  # Insert into document first
-                proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
-                self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
-            else:
-                # If Redshift proxy creation failed, create placeholder cube
+            try:
+                # Create Redshift proxy object using the plugin ID
+                proxy_obj = c4d.BaseObject(1038649)  # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
+                if proxy_obj:
+                    # Set the proxy file path (just the filename, not full path, as per requirements)
+                    proxy_filename_only = os.path.basename(proxy_path)
+                    proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_filename_only
+                    proxy_obj.SetName(proxy_filename)
+                    
+                    doc.InsertObject(proxy_obj)  # Insert into document first
+                    proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+                    self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
+                else:
+                    # If Redshift proxy creation failed, create placeholder cube
+                    proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
+                    proxy_obj.SetName("Placeholder_Cube")
+                    doc.InsertObject(proxy_obj)  # Insert into document first
+                    proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+                    self.logger.log(f"🟦 Failed to create Redshift proxy, using placeholder: {proxy_filename}")
+            except:
+                # If Redshift is not available or any other error, create placeholder cube
                 proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
                 proxy_obj.SetName("Placeholder_Cube")
                 doc.InsertObject(proxy_obj)  # Insert into document first
                 proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
-                self.logger.log(f"🟦 Failed to create Redshift proxy, using placeholder: {proxy_filename}")
+                self.logger.log(f"🟦 Redshift not available, using placeholder: {proxy_filename}")
         else:
             # Proxy file doesn't exist, create placeholder cube as child of JT null object
             proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube (500cm in Cinema 4D units)
@@ -1395,60 +1495,8 @@ class Cinema4DImporter:
         # Perform incremental save if needed
         if self.files_since_last_save >= self.save_interval:
             self.logger.log("⏳ Performing incremental save...")
-            self._perform_incremental_save(doc)
+            self.geometry_manager._perform_incremental_save(doc)
             self.files_since_last_save = 0  # Reset counter
-    
-    def _create_redshift_proxy_object(self, proxy_path, proxy_filename, jt_name, doc):
-        """Create a Redshift proxy object with the specified proxy file"""
-        try:
-            # Create a Redshift proxy object using the correct plugin ID
-            # Different versions of Redshift may have different plugin IDs
-            # Try to identify the Redshift proxy object
-            redshift_proxy_ids = [1038649]  # Redshift Proxy Loader object ID (most common)
-            
-            proxy_obj = None
-            for proxy_id in redshift_proxy_ids:
-                proxy_obj = c4d.BaseObject(proxy_id)
-                if proxy_obj is not None:
-                    break
-            
-            if proxy_obj is None:
-                return None
-            
-            # Set proxy file path - Redshift proxy objects typically use specific parameter IDs
-            # Use just the filename (without path) as Redshift expects
-            # Note: pass the filename instead of the full path
-            proxy_file_only = os.path.basename(proxy_path)  # Get just the filename without directory
-            
-            # Try setting the proxy file using the correct parameter ID for Redshift Proxy Loader
-            # The parameter ID for the proxy file in Redshift Proxy Loader
-            redshift_params = [
-                c4d.REDSHIFT_PROXY_FILE,  # Standard parameter if available
-                1001,  # Common parameter ID for proxy file path
-                4100,  # Alternative parameter ID
-            ]
-            
-            proxy_set = False
-            for param_id in redshift_params:
-                try:
-                    proxy_obj[param_id] = proxy_file_only
-                    proxy_set = True
-                    break
-                except:
-                    continue
-            
-            if not proxy_set:
-                # If setting the proxy path fails, still create the proxy object with just the name
-                proxy_obj.SetName(jt_name + "_RS_Proxy")
-                self.logger.log(f"⚠ Could not set proxy file path for {jt_name + '_RS_Proxy'}, proxy parameter may need manual setting", "WARNING")
-            else:
-                proxy_obj.SetName(jt_name + "_RS_Proxy")
-            
-            return proxy_obj
-            
-        except Exception as e:
-            self.logger.log(f"⚠ Error creating Redshift proxy object: {str(e)}", "WARNING")
-            return None
     
     def _create_matrix_from_transform(self, transform_matrix):
         """Convert 16-value row-major matrix to Cinema 4D Matrix (transposed)"""
@@ -1521,25 +1569,29 @@ class PLMXMLDialog(gui.GeDialog):
     """Dialog for the PLMXML Importer plugin"""
     
     # Dialog element IDs
+    IDC_FILEPATH = 1000
+    IDC_BROWSE_BUTTON = 1001
     IDC_MODE_GROUP = 1002
     IDC_MODE_MATERIAL = 1003
     IDC_MODE_PROXY = 1004
     IDC_MODE_COMPILE = 1005
-    IDC_CANCEL_BUTTON = 1006  # Use standard ID for cancel
+    IDC_MODE_ASSEMBLY = 1006  # Changed from IDC_IMPORT_BUTTON to IDC_MODE_ASSEMBLY
+    IDC_CANCEL_BUTTON = 1007  # Use standard ID for cancel
     
     def __init__(self):
         super().__init__()
-        self.selected_mode = 0  # 0: Material Extraction, 1: Create Redshift Proxies, 2: Build Assembly Tree
+        self.plmxml_path = ""
+        self.selected_mode = 0  # 0: Step 1 Extract materials, 1: Step 2 Create Redshift Proxies, 2: Step 3 Build assembly
     
     def CreateLayout(self):
         """Create the dialog layout"""
-        self.SetTitle("PLMXML Assembly Importer - Step-by-Step")
+        self.SetTitle("PLMXML Assembly Importer")
         
         # Mode selection - Radio buttons
         self.GroupBegin(self.IDC_MODE_GROUP, c4d.BFH_LEFT, cols=1, rows=3)
-        self.AddRadioText(self.IDC_MODE_MATERIAL, c4d.BFH_LEFT, 400, 20, "Step 1: Material extraction only")
-        self.AddRadioText(self.IDC_MODE_PROXY, c4d.BFH_LEFT, 400, 20, "Step 2: Create redshift proxies only")
-        self.AddRadioText(self.IDC_MODE_COMPILE, c4d.BFH_LEFT, 400, 20, "Step 3: Build Assembly tree only")
+        self.AddRadioText(self.IDC_MODE_MATERIAL, c4d.BFH_LEFT, 300, 20, "Step 1: Extract materials")
+        self.AddRadioText(self.IDC_MODE_PROXY, c4d.BFH_LEFT, 300, 20, "Step 2: Create Redshift Proxies")
+        self.AddRadioText(self.IDC_MODE_COMPILE, c4d.BFH_LEFT, 300, 20, "Step 3: Build assembly")
         self.GroupEnd()
         
         # Select first mode by default (Material Extraction) and set selected_mode accordingly
@@ -1549,7 +1601,7 @@ class PLMXMLDialog(gui.GeDialog):
         self.SetBool(self.IDC_MODE_COMPILE, False)
         self.selected_mode = 0
         
-        # Buttons
+        # Buttons - Swapped OK and Cancel positions
         self.GroupBegin(0, c4d.BFH_CENTER, cols=2)
         self.AddButton(c4d.DLG_CANCEL, c4d.BFH_LEFT, name="Cancel")
         self.AddButton(c4d.DLG_OK, c4d.BFH_RIGHT, name="OK")
@@ -1559,7 +1611,12 @@ class PLMXMLDialog(gui.GeDialog):
     
     def Command(self, id, msg):
         """Handle dialog commands"""
-        if id == self.IDC_MODE_MATERIAL:
+        # Removed the browse button handling since we auto-detect PLMXML file
+        if id == self.IDC_BROWSE_BUTTON:
+            # Browse button is no longer part of the UI
+            pass
+        
+        elif id == self.IDC_MODE_MATERIAL:
             self.selected_mode = 0
             self.SetBool(self.IDC_MODE_MATERIAL, True)
             self.SetBool(self.IDC_MODE_PROXY, False)
@@ -1578,60 +1635,28 @@ class PLMXMLDialog(gui.GeDialog):
             self.SetBool(self.IDC_MODE_COMPILE, True)
         
         elif id == c4d.DLG_OK:
-            # Find the PLMXML file in the same directory as the current C4D document
+            # Auto-detect PLMXML file from current C4D file directory
             doc = c4d.documents.GetActiveDocument()
-            doc_path = doc.GetDocumentPath()  # This returns the directory containing the C4D file, not the file itself
+            c4d_file_path = doc.GetDocumentPath()  # Get the path of the current C4D file
             
-            # If no document path exists, show an error message
-            if not doc_path or doc_path == "":
-                self.Close()  # Close dialog immediately
-                c4d.gui.MessageDialog("Please save the Cinema 4D document first in the same folder as the PLMXML file.")
+            if not c4d_file_path or not os.path.exists(c4d_file_path):
+                c4d.gui.MessageDialog("Please save your Cinema 4D file first.")
                 return True
             
-            # Use the document path directory (which is the directory containing the C4D file)
-            doc_dir = doc_path
+            c4d_dir = os.path.dirname(c4d_file_path)
             
-            # DEBUG: Print the document path and directory being checked
-            print(f"DEBUG: Document path from GetDocumentPath(): '{doc_path}'")
-            print(f"DEBUG: Directory being checked: '{doc_dir}'")
+            # Look for .plmxml files in the same directory as the C4D file
+            plmxml_files = [f for f in os.listdir(c4d_dir) if f.lower().endswith('.plmxml') and os.path.isfile(os.path.join(c4d_dir, f))]
             
-            # DEBUG: List all files in the directory to help troubleshoot
-            try:
-                all_files = os.listdir(doc_dir)
-                print(f"DEBUG: Files in directory {doc_dir}: {all_files}")
-                # Filter for .plmxml files
-                plmxml_files = [f for f in all_files if f.lower().endswith('.plmxml')]
-                print(f"DEBUG: .plmxml files found: {plmxml_files}")
-            except Exception as e:
-                print(f"DEBUG: Error listing directory {doc_dir}: {str(e)}")
-                self.Close()  # Close dialog immediately
-                c4d.gui.MessageDialog(f"Error accessing directory: {str(e)}")
+            if not plmxml_files:
+                c4d.gui.MessageDialog(f"No .plmxml files found in the same directory as the C4D file: {c4d_dir}")
                 return True
             
-            # Look for .plmxml file in the same directory
-            plmxml_file = None
-            for file in all_files:  # Use the list we already have
-                if file.lower().endswith('.plmxml'):
-                    if plmxml_file is not None:
-                        # More than one .plmxml file found
-                        self.Close()  # Close dialog immediately
-                        c4d.gui.MessageDialog("Multiple .plmxml files found in the directory. Please ensure there is only one .plmxml file in the same folder as the C4D document.")
-                        return True
-                    plmxml_file = file
+            # If there are multiple .plmxml files, just take the first one
+            # In a real implementation, you might want to show a selection dialog
+            self.plmxml_path = os.path.join(c4d_dir, plmxml_files[0])
             
-            # If no .plmxml file found
-            if plmxml_file is None:
-                self.Close()  # Close dialog immediately
-                c4d.gui.MessageDialog("No .plmxml file found in the same directory as the C4D document.")
-                return True
-            
-            # Set the path to the found PLMXML file
-            self.plmxml_path = os.path.join(doc_dir, plmxml_file)
-            
-            # Close the dialog first to indicate that the process is starting
-            self.Close()
-            
-            # Run import process
+            # Run import process directly without closing dialog first (to maintain context)
             self._run_import_process()
             return True
         
@@ -1645,8 +1670,12 @@ class PLMXMLDialog(gui.GeDialog):
         # Get the current document
         doc = c4d.documents.GetActiveDocument()
         
+        # Log the Cinema 4D document path
+        c4d_document_path = doc.GetDocumentPath()
+        self.logger.log(f"🎬 Cinema 4D document path: {c4d_document_path}", "INFO") if hasattr(self, 'logger') else None
+        
         # Set up logging with requested format: importPlmxml_{Step}_log.txt
-        mode_steps = ["1", "2", "3"]  # Material extraction, Create redshift proxies, Build assembly tree only
+        mode_steps = ["1", "2", "3"]  # Material extraction, Create redshift proxies, Compile redshift proxies
         mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "1"
         log_filename = f"importPlmxml_{mode_step}_log.txt"
         log_path = os.path.join(os.path.dirname(self.plmxml_path), log_filename)
@@ -1657,6 +1686,20 @@ class PLMXMLDialog(gui.GeDialog):
         print(f"📁 Using log file: {log_filename}")
         logger.log(f"🚀 Starting import process for: {os.path.basename(self.plmxml_path)}", "INFO")
         logger.log(f"📁 Using log file: {log_filename}", "INFO")
+        logger.log(f"🎬 Cinema 4D document path: {c4d_document_path}", "INFO")
+        search_directory = os.path.dirname(self.plmxml_path)
+        logger.log(f"📂 Directory for searching PLMXML and JT files: {search_directory}", "INFO")
+        
+        # Verify that both paths are the same
+        if c4d_document_path and os.path.dirname(c4d_document_path) == search_directory:
+            logger.log(f"✅ Verification: C4D document directory and search directory match", "INFO")
+        elif not c4d_document_path:
+            logger.log(f"⚠️ Verification: C4D document not saved yet (no path available)", "WARNING")
+        else:
+            logger.log(f"❌ Verification: C4D document directory and search directory differ", "ERROR")
+            logger.log(f"   C4D document directory: {os.path.dirname(c4d_document_path) if c4d_document_path else 'N/A'}", "ERROR")
+            logger.log(f"   Search directory: {search_directory}", "ERROR")
+        
         logger.log(f"🔧 Selected mode: {self.selected_mode}", "INFO")
         
         try:
@@ -1664,10 +1707,10 @@ class PLMXMLDialog(gui.GeDialog):
             plmxml_parser = PLMXMLParser(logger)
             material_manager = Cinema4DMaterialManager(logger)
             geometry_manager = GeometryInstanceManager(logger)
-            importer = Cinema4DImporter(logger, material_manager, geometry_manager, self.plmxml_path)
+            importer = Cinema4DImporter(logger, material_manager, geometry_manager)
             
             # Map mode to string and create proper log file name
-            mode_names = ["material_extraction", "create_redshift_proxies", "build_assembly_tree_only"]
+            mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies"]
             mode_steps = ["1", "2", "3"]  # Corresponding step numbers
             mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "material_extraction"
             mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "1"

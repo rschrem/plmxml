@@ -213,10 +213,11 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Modal Dialog Behavior**: Correct handling of modal dialogs with proper context
 - **UI Refresh**: Call c4d.EventAdd() after import completion to refresh Cinema 4D interface
 - **Button Management**: Proper ID management to prevent conflicts between buttons and other controls
-- **Step-by-Step Workflow**: Three mutually exclusive radio buttons for Step 1 (Material Extraction Only), Step 2 (Create Redshift Proxies Only), Step 3 (Build Assembly Tree Only)
+- **Step-by-Step Workflow**: Three mutually exclusive radio buttons for Step 1 (Extract materials), Step 2 (Create Redshift Proxies), Step 3 (Build assembly)
 - **Auto-Detection**: PLMXML file auto-detected from same directory as current C4D document (no manual file selection)
 - **Directory Resolution**: Plugin correctly checks the directory containing the C4D file for .plmxml files, not the parent directory
-- **Button Order**: Cancel on the left, OK on the right (opposite to default)
+- **Button Order**: OK on the right, Cancel on the left (swapped from default to follow common UI patterns)
+- **No File Input Field**: Removed PLMXML file input field and browse button from the dialog
 - **Dialog Closure**: Dialog closes immediately when OK is pressed before starting import process
 
 ### 8.6 Error Handling and Robustness
@@ -244,3 +245,5 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Major Improvements**: Material verification and reuse, keyword detection, API compatibility fixes, dialog improvements, Redshift proxy compilation workflow
 - **Version 3.2 Updates**: Step-by-step workflow with 3 modes (Material Extraction Only, Create Redshift Proxies Only, Build Assembly Tree Only), auto-detection of PLMXML file from C4D document directory, updated UI with swapped OK/Cancel buttons, immediate dialog closure on OK press
 - **Version 3.3 Updates**: Fixed path resolution to correctly check directory containing C4D file for .plmxml files (not parent directory)
+- **Version 3.4 Updates**: Removed PLMXML file input field and browse button from dialog, swapped OK and Cancel button positions to follow standard UI patterns, auto-detection of PLMXML file from current C4D file directory
+- **Version 3.5 Updates**: Renamed UI options to Step 1: Extract materials, Step 2: Create Redshift Proxies, Step 3: Build assembly for clarity; removed Full Assembly Import option

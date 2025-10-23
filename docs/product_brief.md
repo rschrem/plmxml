@@ -47,14 +47,14 @@ Geometry Handling
 * Apply instance transforms correctly using SetMg() method
 
 Import Modes
-1. Step 1: Material Extraction Only
+1. Step 1: Extract materials
    * Parse PLMXML and extract all materials
    * Create materials in Cinema 4D document
    * Remove all geometry after material extraction
    * Save document after each file processing
    * Create complete material library with NO geometry
 
-2. Step 2: Create Redshift Proxies Only
+2. Step 2: Create Redshift Proxies
    * Parse PLMXML and load each JT file temporarily
    * Replace loaded materials with closest fitting material in open Cinema 4D file
    * Export loaded geometry as Redshift proxy (.rs file)
@@ -85,9 +85,10 @@ Reliability
 
 Usability
 * Provide clear progress feedback and meaningful error messages
-* Support intuitive mode selection with three step-by-step radio buttons (Step 1: Material Extraction Only, Step 2: Create Redshift Proxies Only, Step 3: Build Assembly Tree Only)
-* Maintain familiar Cinema 4D UI conventions with Cancel button on left, OK button on right
+* Support intuitive mode selection with three step-by-step radio buttons (Step 1: Extract materials, Step 2: Create Redshift Proxies, Step 3: Build assembly)
+* Maintain familiar Cinema 4D UI conventions with OK button on right, Cancel button on left
 * Auto-detect PLMXML file from same directory as current C4D document (using doc.GetDocumentPath() directly, not parent directory)
+* No manual PLMXML file input field or browse button in UI - auto-detection only
 * Dialog closes immediately when OK is pressed before starting import process
 
 Compatibility
@@ -136,13 +137,12 @@ Component Structure
 * Logger: Dual output logging system with immediate flush capability
 
 Data Flow
-1. User selects PLMXML file and import mode through dialog
+1. User selects import mode through dialog (PLMXML file auto-detected from current C4D document directory)
 2. Plugin parses PLMXML file to extract hierarchy and material data
 3. Based on selected mode, process JT files accordingly:
-   * Material Extraction: Extract materials only, remove geometry
-   * Create Redshift Proxies: Load JT, replace materials, export as .rs
-   * Compile Redshift Proxies: Create null hierarchy, check for .rs files
-   * Full Assembly: Load geometry, apply materials, maintain hierarchy
+   * Step 1: Extract materials: Extract materials only, remove geometry
+   * Step 2: Create Redshift Proxies: Load JT, replace materials, export as .rs
+   * Step 3: Build assembly: Create null hierarchy, check for .rs files
 4. Log detailed statistics and progress information
 5. Save document incrementally to prevent data loss
 
