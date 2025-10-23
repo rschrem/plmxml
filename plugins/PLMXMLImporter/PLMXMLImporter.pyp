@@ -676,7 +676,7 @@ class GeometryInstanceManager:
         if not os.path.exists(jt_path):
             self.logger.log(f"✗ File not found: {jt_path}", "ERROR")
             # Create placeholder
-            obj = self._create_placeholder_cube()
+            obj = self._create_placeholder_cube(10000.0)  # 10m cube for missing files
             obj.SetName(f"Placeholder_{os.path.basename(jt_path)}")
             self.logger.log(f"🟦 Created placeholder for missing file: {os.path.basename(jt_path)}")
             return obj
@@ -699,7 +699,7 @@ class GeometryInstanceManager:
         if not load_success:
             self.logger.log(f"✗ Failed to load JT file: {jt_path}", "ERROR")
             # Create placeholder
-            obj = self._create_placeholder_cube()
+            obj = self._create_placeholder_cube(10000.0)  # 10m cube for failed loads
             obj.SetName(f"Placeholder_{os.path.basename(jt_path)}")
             self.logger.log(f"🟦 Created placeholder for failed load: {os.path.basename(jt_path)}")
             return obj
@@ -712,7 +712,7 @@ class GeometryInstanceManager:
         temp_obj = temp_doc.GetFirstObject()
         if temp_obj is None:
             self.logger.log(f"⚠ No geometry found in JT file: {jt_path}", "WARNING")
-            obj = self._create_placeholder_cube()
+            obj = self._create_placeholder_cube(10000.0)  # 10m cube for empty placeholders
             obj.SetName(f"EmptyPlaceholder_{os.path.basename(jt_path)}")
             return obj
         
@@ -720,7 +720,7 @@ class GeometryInstanceManager:
         cloned_obj = temp_obj.GetClone(c4d.COPYFLAGS_NONE)
         if cloned_obj is None:
             self.logger.log(f"✗ Failed to clone geometry from: {jt_path}", "ERROR")
-            return self._create_placeholder_cube()
+            return self._create_placeholder_cube(10000.0)  # 10m cube for clone failure
         
         # Add to hidden container to keep original geometry
         hidden_container = self.get_or_create_hidden_container(doc)
@@ -747,12 +747,12 @@ class GeometryInstanceManager:
             self.logger.log(f"⚠ Incremental save failed: {str(e)}", "WARNING")
             return False
     
-    def _create_placeholder_cube(self):
-        """Create a 10m cube placeholder for missing JT files"""
+    def _create_placeholder_cube(self, size=10000.0):
+        """Create a cube placeholder with specified size for missing JT files"""
         cube = c4d.BaseObject(c4d.Ocube)
         if cube is None:
             return None
-        cube[c4d.PRIM_CUBE_LEN] = c4d.Vector(10000, 10000, 10000)  # 10m in Cinema 4D units
+        cube[c4d.PRIM_CUBE_LEN] = c4d.Vector(size, size, size)  # Size in Cinema 4D units (cm)
         return cube
     
     def _count_polygons_in_document(self, doc):
