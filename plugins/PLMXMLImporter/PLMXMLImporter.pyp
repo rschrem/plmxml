@@ -1354,7 +1354,7 @@ class Cinema4DImporter:
         # Create proxy object (or placeholder if proxy doesn't exist) as a child of the JT null object
         if proxy_exists:
             # Create Redshift proxy object (Redshift is assumed to be available)
-            proxy_obj = self._create_redshift_proxy_object(proxy_path, jt_name, doc)
+            proxy_obj = self._create_redshift_proxy_object(proxy_path, proxy_filename, jt_name, doc)
             if proxy_obj:
                 doc.InsertObject(proxy_obj)  # Insert into document first
                 proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
@@ -1398,7 +1398,7 @@ class Cinema4DImporter:
             self._perform_incremental_save(doc)
             self.files_since_last_save = 0  # Reset counter
     
-    def _create_redshift_proxy_object(self, proxy_path, jt_name, doc):
+    def _create_redshift_proxy_object(self, proxy_path, proxy_filename, jt_name, doc):
         """Create a Redshift proxy object with the specified proxy file"""
         try:
             # Create a Redshift proxy object using the correct plugin ID
@@ -1417,28 +1417,34 @@ class Cinema4DImporter:
             
             # Set proxy file path - Redshift proxy objects typically use specific parameter IDs
             # Use just the filename (without path) as Redshift expects
-            proxy_filename = os.path.basename(proxy_path)  # Get just the filename without directory
+            # Note: pass the filename instead of the full path
+            proxy_file_only = os.path.basename(proxy_path)  # Get just the filename without directory
             
             # Try setting the proxy file using the correct parameter ID for Redshift Proxy Loader
-            # The parameter ID for the proxy file in Redshift Proxy Loader is typically 1001
-            try:
-                # Parameter ID 1001 is the common parameter for proxy file path 
-                proxy_obj[1001] = proxy_filename
-                proxy_obj.SetName(jt_name + "_RS_Proxy")
-                return proxy_obj
-            except:
-                # If setting parameter ID 1001 fails, try the standard Redshift proxy parameter
+            # The parameter ID for the proxy file in Redshift Proxy Loader
+            redshift_params = [
+                c4d.REDSHIFT_PROXY_FILE,  # Standard parameter if available
+                1001,  # Common parameter ID for proxy file path
+                4100,  # Alternative parameter ID
+            ]
+            
+            proxy_set = False
+            for param_id in redshift_params:
                 try:
-                    # Try common Redshift proxy parameter ID
-                    proxy_obj[4100] = proxy_filename
-                    proxy_obj.SetName(jt_name + "_RS_Proxy")
-                    return proxy_obj
+                    proxy_obj[param_id] = proxy_file_only
+                    proxy_set = True
+                    break
                 except:
-                    # If all attempts to set the proxy path fail, still return the proxy object
-                    # but log the issue
-                    proxy_obj.SetName(jt_name + "_RS_Proxy")
-                    self.logger.log(f"⚠ Could not set proxy file path for {jt_name + '_RS_Proxy'}, parameter may need manual setting", "WARNING")
-                    return proxy_obj
+                    continue
+            
+            if not proxy_set:
+                # If setting the proxy path fails, still create the proxy object with just the name
+                proxy_obj.SetName(jt_name + "_RS_Proxy")
+                self.logger.log(f"⚠ Could not set proxy file path for {jt_name + '_RS_Proxy'}, proxy parameter may need manual setting", "WARNING")
+            else:
+                proxy_obj.SetName(jt_name + "_RS_Proxy")
+            
+            return proxy_obj
             
         except Exception as e:
             self.logger.log(f"⚠ Error creating Redshift proxy object: {str(e)}", "WARNING")
