@@ -1589,9 +1589,22 @@ class PLMXMLDialog(gui.GeDialog):
                 c4d.gui.MessageDialog("Please save the Cinema 4D document first in the same folder as the PLMXML file.")
                 return True
             
+            # DEBUG: List all files in the directory to help troubleshoot
+            try:
+                all_files = os.listdir(doc_dir)
+                print(f"DEBUG: Files in directory {doc_dir}: {all_files}")
+                # Filter for .plmxml files
+                plmxml_files = [f for f in all_files if f.lower().endswith('.plmxml')]
+                print(f"DEBUG: .plmxml files found: {plmxml_files}")
+            except Exception as e:
+                print(f"DEBUG: Error listing directory {doc_dir}: {str(e)}")
+                self.Close()  # Close dialog immediately
+                c4d.gui.MessageDialog(f"Error accessing directory: {str(e)}")
+                return True
+            
             # Look for .plmxml file in the same directory
             plmxml_file = None
-            for file in os.listdir(doc_dir):
+            for file in all_files:  # Use the list we already have
                 if file.lower().endswith('.plmxml'):
                     if plmxml_file is not None:
                         # More than one .plmxml file found
