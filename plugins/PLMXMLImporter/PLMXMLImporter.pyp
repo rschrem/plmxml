@@ -1307,6 +1307,19 @@ class Cinema4DImporter:
         hidden_container = self.geometry_manager.get_or_create_hidden_container(doc)
         self.logger.log(f"📁 Using hidden container: {hidden_container.GetName() if hidden_container else 'None'}")
         
+        # Create a null object with the same name as the JT file directly under _PLMXML_Geometries
+        jt_name = os.path.splitext(os.path.basename(jt_path))[0]
+        jt_null_obj = c4d.BaseObject(c4d.Onull)
+        if jt_null_obj:
+            jt_null_obj.SetName(jt_name)
+            doc.InsertObject(jt_null_obj)  # Insert into document first
+            jt_null_obj.InsertUnder(hidden_container)  # Then under the hidden container
+            self.logger.log(f"📁 Created JT null object: {jt_null_obj.GetName()}")
+        else:
+            self.logger.log(f"✗ Failed to create JT null object for: {jt_name}", "ERROR")
+            self.total_files_processed += 1
+            return
+        
         # Check if proxy file exists
         # Use the PLMXML file directory, not the document directory
         plmxml_dir = os.path.dirname(self.plmxml_file_path) if hasattr(self, 'plmxml_file_path') and self.plmxml_file_path else os.path.dirname(jt_path)
@@ -1319,7 +1332,7 @@ class Cinema4DImporter:
         self.logger.log(f"📁 JT path: {jt_path}")
         self.logger.log(f"📁 Self.plmxml_file_path: {getattr(self, 'plmxml_file_path', 'NOT SET')}")
         
-        # Create proxy object (or placeholder if proxy doesn't exist)
+        # Create proxy object (or placeholder if proxy doesn't exist) as a child of the JT null object
         if proxy_exists:
             # Check if Redshift is available first
             redshift_available = False
@@ -1336,63 +1349,71 @@ class Cinema4DImporter:
                 self.logger.log(f"⚠ Exception checking for Redshift: {str(e)}", "WARNING")
                 redshift_available = False
             
-            # Create Redshift proxy object if Redshift is available
+            # Create Redshift proxy object or placeholder cube as child of JT null object
             if redshift_available:
                 try:
                     # Try to create a Redshift proxy object
                     # NOTE: Don't use 'import c4d.plugins' here as it creates a local c4d variable that shadows the global c4d module
                     redshift_plugin = c4d.plugins.FindPlugin(1036223)  # Redshift plugin ID
                     if redshift_plugin:
+                        self.logger.log("✓ Redshift plugin found")
                         # Use the proper Redshift proxy object creation method
                         proxy_obj = c4d.BaseObject(1038649)  # Redshift Proxy Object plugin ID (com.redshift3d.redshift4c4d.proxyloader)
                         if proxy_obj:
                             # Set the proxy file path (just filename since all files are in same directory)
                             proxy_obj[c4d.REDSHIFT_PROXY_FILE] = os.path.basename(proxy_path)  # Just filename
-                            proxy_obj.SetName(os.path.splitext(os.path.basename(jt_path))[0] + "_RS_Proxy")
+                            proxy_obj.SetName(jt_name + "_RS_Proxy")
                             doc.InsertObject(proxy_obj)  # Insert into document first
-                            proxy_obj.InsertUnder(hidden_container)  # Then under the hidden container
+                            proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object (not hidden container)
                             self.logger.log(f"✓ Redshift proxy object created: {proxy_filename}")
                         else:
-                            # If Redshift proxy object isn't available, create placeholder
-                            proxy_obj = self.geometry_manager._create_placeholder_cube()
-                            proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
+                            # If Redshift proxy object isn't available, create placeholder cube
+                            proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
+                            proxy_obj.SetName("Placeholder_Cube")
                             doc.InsertObject(proxy_obj)  # Insert into document first
-                            self.logger.log(f"🟦 Created placeholder for missing proxy: {proxy_filename}")
+                            proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+                            self.logger.log(f"🟦 Created placeholder cube for: {proxy_filename}")
                     else:
-                        # Redshift not available, create placeholder
-                        proxy_obj = self.geometry_manager._create_placeholder_cube()
-                        proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
+                        # Redshift not available, create placeholder cube
+                        proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
+                        proxy_obj.SetName("Placeholder_Cube")
                         doc.InsertObject(proxy_obj)  # Insert into document first
-                        self.logger.log(f"🟦 Redshift unavailable, created placeholder: {proxy_filename}")
+                        proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+                        self.logger.log(f"🟦 Redshift unavailable, created placeholder cube: {proxy_filename}")
                 except Exception as e:
-                    # Create placeholder as fallback
-                    self.logger.log(f"⚠ Exception during Redshift proxy creation: {str(e)}, creating placeholder")
-                    proxy_obj = self.geometry_manager._create_placeholder_cube()
-                    proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
+                    # Create placeholder cube as fallback
+                    self.logger.log(f"⚠ Exception during Redshift proxy creation: {str(e)}, creating placeholder cube")
+                    proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
+                    proxy_obj.SetName("Placeholder_Cube")
                     doc.InsertObject(proxy_obj)  # Insert into document first
-                    self.logger.log(f"🟦 Fallback placeholder created: {proxy_filename}")
+                    proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+                    self.logger.log(f"🟦 Fallback placeholder cube created: {proxy_filename}")
             else:
-                # Redshift not available, create placeholder
+                # Redshift not available, create placeholder cube
                 self.logger.log(f"🟦 Redshift not available, creating placeholder cube for: {proxy_filename}")
-                proxy_obj = self.geometry_manager._create_placeholder_cube()
-                proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
+                proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube (500cm in Cinema 4D units)
+                proxy_obj.SetName("Placeholder_Cube")
                 doc.InsertObject(proxy_obj)  # Insert into document first
+                proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
                 self.logger.log(f"🟦 Created placeholder cube for missing proxy: {proxy_filename}")
         else:
-            # Proxy file doesn't exist, create placeholder cube
-            proxy_obj = self.geometry_manager._create_placeholder_cube()
-            proxy_obj.SetName(f"MissingProxy_{os.path.splitext(os.path.basename(jt_path))[0]}")
-            self.logger.log(f"🟦 Created placeholder for missing proxy: {proxy_filename}")
+            # Proxy file doesn't exist, create placeholder cube as child of JT null object
+            proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube (500cm in Cinema 4D units)
+            proxy_obj.SetName("Placeholder_Cube")
+            doc.InsertObject(proxy_obj)  # Insert into document first
+            proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+            self.logger.log(f"🟦 Created placeholder cube for missing proxy: {proxy_filename}")
         
-        if proxy_obj:
-            # Create an instance of the proxy object to maintain transforms in the visible hierarchy
-            instance_obj = self.geometry_manager.create_instance(proxy_obj, doc)
+        # Create an instance of the JT null object to maintain transforms in the visible hierarchy
+        if jt_null_obj:
+            instance_obj = self.geometry_manager.create_instance(jt_null_obj, doc)
             if instance_obj:
-                instance_obj.SetName(proxy_obj.GetName() + "_Instance")
+                instance_obj.SetName(jt_name + "_Instance")
                 # Insert instance under the parent to maintain assembly structure
                 instance_obj.InsertUnder(parent_obj)
                 self.logger.log(f"✓ Proxy instance added to assembly: {instance_obj.GetName()}")
                 self.logger.log(f"📁 Parent object: {parent_obj.GetName() if parent_obj else 'None'}")
+                self.logger.log(f"📁 JT null object: {jt_null_obj.GetName() if jt_null_obj else 'None'}")
                 self.logger.log(f"📁 Proxy object: {proxy_obj.GetName() if proxy_obj else 'None'}")
                 self.logger.log(f"📁 Instance object: {instance_obj.GetName() if instance_obj else 'None'}")
         
