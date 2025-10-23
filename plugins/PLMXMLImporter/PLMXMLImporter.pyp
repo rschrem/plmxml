@@ -1456,6 +1456,9 @@ class Cinema4DImporter:
                             self.logger.log(f"🔍 Redshift proxy file property setting result: {success}", "INFO")
                             if not success:
                                 self.logger.log(f"⚠ Redshift proxy file property setting returned False for: {proxy_filename_only}", "WARNING")
+                            else:
+                                # Trigger an update to make sure the parameter takes effect
+                                proxy_obj.Message(c4d.MSG_UPDATE)
                         except Exception as e:
                             # If setting the file property fails, log it but continue
                             self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}. Error: {str(e)}", "WARNING")
