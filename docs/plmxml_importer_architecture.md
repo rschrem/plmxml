@@ -53,7 +53,7 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 
 **Responsibilities:**  
 - Display mode selection (Step 1: Material Extraction Only, Step 2: Create Redshift Proxies Only, Step 3: Build Assembly Tree Only)
-- Auto-detect PLMXML file from same directory as current C4D document
+- Auto-detect PLMXML file from same directory as current C4D document (using doc.GetDocumentPath() directly)
 - Button management with Cancel on left, OK on right
 - Dialog closes immediately on OK press
 - Progress feedback display

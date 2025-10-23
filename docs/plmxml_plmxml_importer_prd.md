@@ -215,6 +215,7 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Button Management**: Proper ID management to prevent conflicts between buttons and other controls
 - **Step-by-Step Workflow**: Three mutually exclusive radio buttons for Step 1 (Material Extraction Only), Step 2 (Create Redshift Proxies Only), Step 3 (Build Assembly Tree Only)
 - **Auto-Detection**: PLMXML file auto-detected from same directory as current C4D document (no manual file selection)
+- **Directory Resolution**: Plugin correctly checks the directory containing the C4D file for .plmxml files, not the parent directory
 - **Button Order**: Cancel on the left, OK on the right (opposite to default)
 - **Dialog Closure**: Dialog closes immediately when OK is pressed before starting import process
 
@@ -242,3 +243,4 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Current Version**: 3.1 (updated from initial 3.0)
 - **Major Improvements**: Material verification and reuse, keyword detection, API compatibility fixes, dialog improvements, Redshift proxy compilation workflow
 - **Version 3.2 Updates**: Step-by-step workflow with 3 modes (Material Extraction Only, Create Redshift Proxies Only, Build Assembly Tree Only), auto-detection of PLMXML file from C4D document directory, updated UI with swapped OK/Cancel buttons, immediate dialog closure on OK press
+- **Version 3.3 Updates**: Fixed path resolution to correctly check directory containing C4D file for .plmxml files (not parent directory)

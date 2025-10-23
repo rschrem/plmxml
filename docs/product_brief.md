@@ -87,7 +87,7 @@ Usability
 * Provide clear progress feedback and meaningful error messages
 * Support intuitive mode selection with three step-by-step radio buttons (Step 1: Material Extraction Only, Step 2: Create Redshift Proxies Only, Step 3: Build Assembly Tree Only)
 * Maintain familiar Cinema 4D UI conventions with Cancel button on left, OK button on right
-* Auto-detect PLMXML file from same directory as current C4D document (no manual file selection)
+* Auto-detect PLMXML file from same directory as current C4D document (using doc.GetDocumentPath() directly, not parent directory)
 * Dialog closes immediately when OK is pressed before starting import process
 
 Compatibility
