@@ -1585,8 +1585,9 @@ class PLMXMLDialog(gui.GeDialog):
             
             # If no document path exists, show an error message
             if not doc_dir:
+                self.Close()  # Close dialog immediately
                 c4d.gui.MessageDialog("Please save the Cinema 4D document first in the same folder as the PLMXML file.")
-                return True  # Keep dialog open
+                return True
             
             # Look for .plmxml file in the same directory
             plmxml_file = None
@@ -1594,14 +1595,16 @@ class PLMXMLDialog(gui.GeDialog):
                 if file.lower().endswith('.plmxml'):
                     if plmxml_file is not None:
                         # More than one .plmxml file found
+                        self.Close()  # Close dialog immediately
                         c4d.gui.MessageDialog("Multiple .plmxml files found in the directory. Please ensure there is only one .plmxml file in the same folder as the C4D document.")
-                        return True  # Keep dialog open
+                        return True
                     plmxml_file = file
             
             # If no .plmxml file found
             if plmxml_file is None:
+                self.Close()  # Close dialog immediately
                 c4d.gui.MessageDialog("No .plmxml file found in the same directory as the C4D document.")
-                return True  # Keep dialog open
+                return True
             
             # Set the path to the found PLMXML file
             self.plmxml_path = os.path.join(doc_dir, plmxml_file)
