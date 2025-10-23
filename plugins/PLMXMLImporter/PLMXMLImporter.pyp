@@ -1450,15 +1450,15 @@ class Cinema4DImporter:
                             redshift_constant = getattr(c4d, 'REDSHIFT_PROXY_FILE')
                             self.logger.log(f"🔍 Redshift proxy file constant: {redshift_constant} (type: {type(redshift_constant)})", "INFO")
                             
-                            # Try setting the parameter directly as a string
+                            # Try setting the parameter directly using bracket notation like the sample code
                             self.logger.log(f"🔍 Attempting to set Redshift proxy file property as string: {proxy_filename_only}", "INFO")
-                            success = proxy_obj.SetParameter(redshift_constant, proxy_filename_only, c4d.DESCFLAGS_SET_0)
-                            self.logger.log(f"🔍 Redshift proxy file property setting result: {success}", "INFO")
-                            if not success:
-                                self.logger.log(f"⚠ Redshift proxy file property setting returned False for: {proxy_filename_only}", "WARNING")
-                            else:
+                            try:
+                                proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_filename_only
+                                self.logger.log(f"✅ Redshift proxy file property set successfully: {proxy_filename_only}", "INFO")
                                 # Trigger an update to make sure the parameter takes effect
                                 proxy_obj.Message(c4d.MSG_UPDATE)
+                            except Exception as e:
+                                self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}. Error: {str(e)}", "WARNING")
                         except Exception as e:
                             # If setting the file property fails, log it but continue
                             self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}. Error: {str(e)}", "WARNING")
@@ -1470,6 +1470,9 @@ class Cinema4DImporter:
                     doc.InsertObject(proxy_obj)  # Insert into document first
                     proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
                     self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
+                    
+                    # Trigger Cinema 4D event update like the sample code
+                    c4d.EventAdd()
                 else:
                     # If Redshift proxy creation failed, create placeholder cube
                     proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
