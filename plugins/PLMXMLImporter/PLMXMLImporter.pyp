@@ -2152,6 +2152,61 @@ class Cinema4DImporter:
         
         return None  # No similar material found
 
+    def _setup_rs_proxy_file_path(self, proxy_obj, rs_file_path):
+        """Configure an existing RS Proxy object using the provided template"""
+        
+        if not proxy_obj:
+            return False
+        
+        # Try different methods to set the file path
+        success = False
+        
+        # Method 1: Direct parameter access using BaseContainer
+        bc = proxy_obj.GetData()
+        if bc:
+            for key in bc.GetIndexIds():
+                desc = proxy_obj.GetParameterDescription(key)
+                if desc:
+                    name = desc.GetString(c4d.DESC_NAME, "")
+                    if "file" in name.lower() or "path" in name.lower():
+                        try:
+                            proxy_obj[key] = rs_file_path
+                            success = True
+                            break
+                        except:
+                            continue
+        
+        # If Method 1 didn't work, try Method 2 using GetDescription
+        if not success:
+            try:
+                desc = proxy_obj.GetDescription(c4d.DESCFLAGS_DESC)
+                for bc, group_id, group_bc in desc:
+                    param_name = bc.GetString(c4d.DESC_NAME)
+                    if 'file' in param_name.lower() or 'path' in param_name.lower() or 'proxy' in param_name.lower():
+                        try:
+                            proxy_obj[bc.GetId()] = rs_file_path
+                            success = True
+                            break
+                        except:
+                            continue
+            except:
+                pass
+        
+        # If still no success, try with c4d.Filename object
+        if not success:
+            try:
+                # Use the parameter ID from the product brief template
+                PROXY_FILE_PARAM_ID = 2001  # From product brief template
+                proxy_obj[PROXY_FILE_PARAM_ID] = c4d.Filename(rs_file_path)
+                success = True
+            except:
+                pass
+        
+        if success:
+            c4d.EventAdd()
+        
+        return success
+    
     def _material_matches_properties(self, material, material_properties):
         """Check if a material matches the given material properties"""
         # For Step 2, we primarily match by name pattern since the properties might not be directly accessible
@@ -2361,50 +2416,40 @@ class Cinema4DImporter:
                 # Set the proxy's name to the filename
                 proxy_obj.SetName(proxy_filename)
                 
-                # Set the proxy file path using the template from product brief
-                # Use the exact parameter ID from the template: 2001
+                # Set the proxy file path using the provided template function
                 # Use just the filename (no path) as required in Step 3 requirements
                 proxy_filename_only = os.path.basename(proxy_path)
                 
-                try:
-                    # Create a proper c4d.Filename object - this is what Redshift proxies expect
-                    proxy_file_obj = c4d.Filename(proxy_filename_only)
-                    
-                    # Use the exact parameter ID from the template
-                    PROXY_FILE_PARAM_ID = 2001  # From product brief template
-                    proxy_obj[PROXY_FILE_PARAM_ID] = proxy_file_obj
-                    
-                    self.logger.log(f"✅ Redshift proxy file property set using parameter ID {PROXY_FILE_PARAM_ID} with filename: {proxy_filename_only}", "INFO")
-                    
-                    # Optional: Set display mode as mentioned in the template
-                    # 0 = Off, 1 = Bounding Box, 2 = Preview, etc.
-                    PROXY_DISPLAY_MODE_ID = 2002  # Check exact ID from template
-                    if PROXY_DISPLAY_MODE_ID:  # Only set if it exists
+                # Use the provided template function to set the file path
+                proxy_setup_success = self._setup_rs_proxy_file_path(proxy_obj, proxy_filename_only)
+                
+                if proxy_setup_success:
+                    self.logger.log(f"✅ Redshift proxy file property set using filename: {proxy_filename_only}", "INFO")
+                else:
+                    self.logger.log(f"⚠ Failed to set Redshift proxy file property using template function", "WARNING")
+                    # Fallback: try the direct parameter approach from product brief
+                    try:
+                        # Create a proper c4d.Filename object - this is what Redshift proxies expect
+                        proxy_file_obj = c4d.Filename(proxy_filename_only)
+                        
+                        # Use the exact parameter ID from the product brief template
+                        PROXY_FILE_PARAM_ID = 2001  # From product brief template
+                        proxy_obj[PROXY_FILE_PARAM_ID] = proxy_file_obj
+                        
+                        self.logger.log(f"✅ Redshift proxy file property set using fallback parameter ID {PROXY_FILE_PARAM_ID}", "INFO")
+                        
+                    except Exception as e:
+                        self.logger.log(f"⚠ Could not set Redshift proxy file property using fallback: {str(e)}", "WARNING")
+                
+                # Optional: Set display mode as mentioned in the product brief template
+                # 0 = Off, 1 = Bounding Box, 2 = Preview, etc.
+                PROXY_DISPLAY_MODE_ID = 2002  # Check exact ID from template
+                if PROXY_DISPLAY_MODE_ID:  # Only set if it exists
+                    try:
                         proxy_obj[PROXY_DISPLAY_MODE_ID] = 1  # Bounding Box mode
                         self.logger.log(f"🎨 Redshift proxy display mode set to Bounding Box", "INFO")
-                    
-                except Exception as e:
-                    self.logger.log(f"⚠ Could not set Redshift proxy file property using template approach: {str(e)}", "WARNING")
-                    # Fallback: try the direct constant if available
-                    try:
-                        if hasattr(c4d, 'REDSHIFT_PROXY_FILE'):
-                            proxy_obj[c4d.REDSHIFT_PROXY_FILE] = c4d.Filename(proxy_filename_only)
-                            self.logger.log(f"✅ Redshift proxy file property set using REDSHIFT_PROXY_FILE constant", "INFO")
-                        else:
-                            # Last resort - try to find the parameter dynamically
-                            desc = proxy_obj.GetDescription(c4d.DESCFLAGS_DESC)
-                            for bc, group_id, group_bc in desc:
-                                if bc.GetId() >= 1000:  # Parameters typically start from 1000
-                                    param_name = bc.GetString(c4d.DESC_NAME)
-                                    if 'file' in param_name.lower() or 'path' in param_name.lower():
-                                        try:
-                                            proxy_obj[bc.GetId()] = c4d.Filename(proxy_filename_only)
-                                            self.logger.log(f"✅ Redshift proxy file property set using discovered parameter ID: {bc.GetId()}", "INFO")
-                                            break
-                                        except:
-                                            continue
                     except:
-                        self.logger.log(f"⚠ Could not set proxy file path using fallback methods", "WARNING")
+                        self.logger.log(f"🎨 Could not set display mode, using default", "INFO")
                 
                 # Trigger an update to make sure the parameter takes effect
                 proxy_obj.Message(c4d.MSG_UPDATE)
