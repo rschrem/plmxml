@@ -3,7 +3,7 @@
 ## 1. Executive Summary
 
 **Product Name:** PLMXML Assembly Importer Plugin for Cinema 4D 2025
-**Version:** 3.7
+**Version:** 3.8
 **Project ID:** 1054321
 **Project Owner:** [Your Name]
 **Date:** [Current Date]
@@ -241,11 +241,13 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Redshift Plugin ID**: Use 1038649 (com.redshift3d.redshift4c4d.proxyloader) for proper plugin identification
 
 ### 8.9 Redshift Proxy Creation Workflow (Step 2: Create Redshift Proxies Implementation)
-- **Temporary Document Clearing**: In Step 2, ensure temporary documents are completely empty before loading JT files to prevent conflicts or memory issues
-- **JT File Processing**: Load JT files temporarily into a clean document before extracting geometry for proxy creation
+- **No Temporary Documents**: In Step 2, use the currently active document instead of creating temporary documents for JT loading and proxy export
+- **JT File Processing**: Load JT files directly into the active document, clearing any existing objects first
+- **Material Replacement**: Replace materials with closest matching materials from the active Cinema 4D document
 - **Proxy Output**: Create .rs proxy files using the known working format ID 1038650
 - **Simplified Export**: Remove all fallback methods and use only the proven working format for Redshift proxy export
-- **Memory Optimization**: Clean temporary documents after each JT file processing to minimize memory usage
+- **Assembly-Free Processing**: Step 2 focuses solely on creating proxy files without building any assembly object tree
+- **Memory Management**: No temporary documents to clean up since using active document directly
 
 ### 8.10 Version Information
 - **Current Version**: 3.1 (updated from initial 3.0)
@@ -256,3 +258,4 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Version 3.5 Updates**: Renamed UI options to Step 1: Extract materials, Step 2: Create Redshift Proxies, Step 3: Build assembly for clarity; removed Full Assembly Import option
 - **Version 3.6 Updates**: Implemented global working directory variable for simplified file operations; all files (PLMXML, JT, RS proxies, logs) now use single directory approach eliminating complex path arithmetic
 - **Version 3.7 Updates**: Enhanced dialog closure using threading to ensure proper closure before import process starts; simplified Redshift proxy export to use only working format ID 1038650; ensure temporary documents are empty before loading JT files in Step 2 to prevent conflicts
+- **Version 3.8 Updates**: Step 2 no longer builds assembly tree - focuses solely on creating Redshift proxy files; removes all temporary document usage in Step 2, using active document instead; implements material replacement using active document materials

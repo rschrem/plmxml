@@ -1,5 +1,5 @@
 # PLMXML Assembly Importer Plugin - Technical Architecture Document
-**Version:** 3.7
+**Version:** 3.8
 **Git Commit:** $Format:%H$
 
 ## 1. System Overview
@@ -118,7 +118,7 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 - Create instance objects for repeated geometries
 - Apply transforms to instances and geometry
 - Handle JT file loading and cleanup
-- Ensure temporary documents are empty before loading JT files in Step 2
+- Use active document instead of temporary documents in Step 2, clearing objects before loading JT files
 
 **Methods:**
 - `load_jt_geometry(jt_path)` - Load JT file into temporary document

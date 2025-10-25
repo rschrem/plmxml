@@ -1,5 +1,5 @@
 # Product Brief
-**Version:** 3.7
+**Version:** 3.8
 **Git Commit:** $Format:%H$
 
 Complete Specification for PLMXML Assembly Importer Plugin for Cinema 4D 2025
@@ -12,7 +12,7 @@ Installation & Registration
 * Plugin ID: 1054321
 * Plugin Name: "PLMXML Assembly Importer"
 * Menu Location: Extensions → User Scripts → PLMXML Assembly Importer
-* Version: 3.7
+* Version: 3.8
 Dependencies
 * Cinema 4D 2025 or later
 * Redshift for Cinema 4D (optional, for proxy modes)
@@ -55,10 +55,10 @@ Import Modes
    * Create complete material library with NO geometry
 
 2. Step 2: Create Redshift Proxies
-   * Parse PLMXML and load each JT file temporarily
+   * Parse PLMXML and load each JT file into the active document (no temporary documents)
    * Replace loaded materials with closest fitting material in open Cinema 4D file
-   * Export loaded geometry as Redshift proxy (.rs file)
-   * Immediately delete geometry after Redshift proxy export
+   * Export loaded geometry as Redshift proxy (.rs file) using active document
+   * Focus only on creating proxy files, no assembly tree building
    * Progress tracking with detailed statistics
 
 3. Step 3: Build Assembly Tree Only

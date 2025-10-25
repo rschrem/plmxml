@@ -862,6 +862,10 @@ class Cinema4DImporter:
         self.total_files_processed = 0
         self.files_since_last_save = 0
         self.save_interval = 5  # Save every 5 files
+        self.total_jt_files = 0  # Total number of JT files to process
+        self.total_rs_files = 0  # Total number of RS files to process (for step 3)
+        self.processed_jt_count = 0  # Counter for processed JT files (for progress tracking)
+        self.processed_rs_count = 0  # Counter for processed RS files (for progress tracking)
     
     def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None, working_directory=None):
         """Build the Cinema 4D scene hierarchy from parsed data"""
@@ -872,8 +876,20 @@ class Cinema4DImporter:
         self.plmxml_file_path = plmxml_file_path
         self.working_directory = working_directory
         
+        # Count total JT files to process based on mode
+        self._count_total_files(plmxml_parser, mode)
+        
+        # Reset progress counters for this import session
+        self.processed_jt_count = 0
+        self.processed_rs_count = 0
+        
         self.logger.log("="*80)
         self.logger.log("🏗️  Starting hierarchy building process")
+        self.logger.log(f"📁 Mode: {mode}")
+        if mode == "create_redshift_proxies":
+            self.logger.log(f"📊 Total JT files to convert to .rs: {self.total_jt_files}")
+        elif mode == "compile_redshift_proxies":
+            self.logger.log(f"📊 Total .rs files to check: {self.total_rs_files}")
         self.logger.log("="*80)
         
         # Get root references for the hierarchy
@@ -927,6 +943,24 @@ class Cinema4DImporter:
         
         return True
     
+    def _count_total_files(self, plmxml_parser, mode):
+        """Count total files to be processed based on mode"""
+        total_jt_count = 0
+        total_rs_count = 0
+        
+        # Get all instances from the parser
+        for instance_id, instance_data in plmxml_parser.instances.items():
+            part_ref = instance_data['part_ref']
+            if part_ref and part_ref in plmxml_parser.parts:
+                part_data = plmxml_parser.parts[part_ref]
+                # Count jt files for this part
+                jt_files_count = len(part_data.get('jt_files', []))
+                total_jt_count += jt_files_count
+                total_rs_count += jt_files_count  # In mode 3, we check for .rs files for each JT file
+                
+        self.total_jt_files = total_jt_count
+        self.total_rs_files = total_rs_count
+        
     def _process_instance(self, instance_data, plmxml_parser, doc, parent_obj, mode):
         """Process a single instance and its hierarchy"""
         part_ref = instance_data['part_ref']
@@ -1014,8 +1048,11 @@ class Cinema4DImporter:
         self.files_since_last_save = 0  # Reset counter to prevent incremental saves during material extraction
     
     def _process_redshift_proxy_creation(self, jt_path, parent_obj, material_properties, doc):
-        """Process redshift proxy creation"""
-        self.logger.log(f"🎬 Creating redshift proxy for: {os.path.basename(jt_path)}")
+        """Process redshift proxy creation - Step 2: Create proxy files only, no assembly tree building"""
+        # Update progress tracking counter
+        self.processed_jt_count += 1
+        remaining_files = max(0, self.total_jt_files - self.processed_jt_count)
+        self.logger.log(f"🎬 Creating redshift proxy for: {os.path.basename(jt_path)} ({self.processed_jt_count}/{self.total_jt_files}, {remaining_files} left)")
         
         # Check if Redshift is available
         try:
@@ -1034,38 +1071,35 @@ class Cinema4DImporter:
             
             if redshift_plugin is None:
                 self.logger.log("⚠ Redshift not found, skipping proxy creation", "WARNING")
-                self.total_files_processed += 1
                 return
             else:
                 self.logger.log(f"✓ Using Redshift plugin ID: {found_plugin_id}")
         except Exception as e:
             self.logger.log(f"⚠ Could not access Redshift: {str(e)}, skipping proxy creation", "WARNING")
-            self.total_files_processed += 1
             return
         
         # Check if file exists
         if not os.path.exists(jt_path):
             self.logger.log(f"✗ JT file not found: {jt_path}", "ERROR")
-            self.total_files_processed += 1
             return
         
-        # Create and clear a temporary document before loading the JT file
-        temp_doc = c4d.documents.BaseDocument()
+        # Get the currently active document
+        current_doc = c4d.documents.GetActiveDocument()
         
-        # Ensure the temporary document is completely empty before loading
-        # Remove any default objects or settings
-        temp_obj = temp_doc.GetFirstObject()
-        while temp_obj:
-            next_obj = temp_obj.GetNext()
-            temp_obj.Remove()
-            temp_obj = next_obj
+        # Clear any existing objects in the current document while keeping materials
+        # Remove all objects but keep materials and other settings
+        obj = current_doc.GetFirstObject()
+        while obj:
+            next_obj = obj.GetNext()
+            obj.Remove()
+            obj = next_obj
         
         load_success = False
         
         try:
-            self.logger.log(f"⏳ Loading JT file temporarily: {jt_path}")
+            self.logger.log(f"⏳ Loading JT file into current document: {jt_path}")
             load_success = c4d.documents.MergeDocument(
-                temp_doc, 
+                current_doc, 
                 jt_path, 
                 c4d.SCENEFILTER_OBJECTS  # Geometry only, NO materials
             )
@@ -1075,105 +1109,52 @@ class Cinema4DImporter:
         
         if not load_success:
             self.logger.log(f"✗ Failed to load JT file: {jt_path}", "ERROR")
-            self.total_files_processed += 1
             return
         
         # Count polygons in loaded geometry using the geometry manager
-        total_polygons = self.geometry_manager._count_polygons_in_document(temp_doc)
+        total_polygons = self.geometry_manager._count_polygons_in_document(current_doc)
         self.logger.log(f"📊 Polygons in {os.path.basename(jt_path)}: {total_polygons:,}")
         
-        # Get the geometry from the temp document - handle multiple objects if present
-        temp_obj = temp_doc.GetFirstObject()
-        if temp_obj is None:
+        # Get the geometry from the current document - handle multiple objects if present
+        current_doc_obj = current_doc.GetFirstObject()
+        if current_doc_obj is None:
             self.logger.log(f"⚠ No geometry found in JT file: {jt_path}", "WARNING")
-            self.total_files_processed += 1
             return
         
-        # Handle multiple root objects by creating a container if needed
+        # Handle multiple root objects by getting them from the current document
         root_objects = []
-        current_obj = temp_doc.GetFirstObject()
-        while current_obj:
-            root_objects.append(current_obj)
-            current_obj = current_obj.GetNext()
-        
-        # If multiple root objects exist, create a container; otherwise use the single object
-        if len(root_objects) > 1:
-            # Create a container null for multiple objects
-            container = c4d.BaseObject(c4d.Onull)
-            container.SetName(os.path.splitext(os.path.basename(jt_path))[0] + "_Container")
-            
-            # Move all root objects under the container
-            for obj in root_objects:
-                obj.Remove()  # Remove from document temporarily
-                obj.InsertUnder(container)  # Insert under container
-            
-            # Insert the container under parent
-            container.InsertUnder(parent_obj)
-            processing_obj = container
-        else:
-            # Single object case - move it to the main document
-            temp_obj.Remove()  # Remove from temp document
-            temp_obj.InsertUnder(parent_obj)  # Insert under parent
-            processing_obj = temp_obj
-        
-        # If we have material properties, try to match closest material in the current scene
-        if material_properties:
-            self._replace_materials_with_closest_match(processing_obj, material_properties, doc)
+        obj_iter = current_doc.GetFirstObject()
+        while obj_iter:
+            root_objects.append(obj_iter)
+            obj_iter = obj_iter.GetNext()
         
         # Determine the output path for the Redshift proxy
         # Use the working directory, not the active document directory
         # Use .rs extension as intended for Redshift proxies
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(self.working_directory, proxy_filename)
-        self.logger.log(f"📁 Proxy output path: {proxy_path}")
         
-        # Use Redshift's proxy export functionality
-        try:
-            # Create a temporary document with just the object for clean proxy export
-            proxy_doc = c4d.documents.BaseDocument()
-            proxy_obj_clone = processing_obj.GetClone(c4d.COPYFLAGS_0)
-            proxy_doc.InsertObject(proxy_obj_clone)
-            
-            # Try to use Redshift's Python API for non-interactive proxy export
-            try:
-                import redshift
-                
-                # Create or get a Redshift renderer accessor
-                rs_renderer = redshift.Renderer.Redshift()
-                
-                # Setup export settings
-                settings = redshift.ProxyExportSettings()
-                
-                settings.exportSelectionOnly = False
-                settings.exportAnimations = False
-                settings.filePath = proxy_path
-                settings.exportMaterials = True
-                settings.exportInstances = True
-                settings.embedTextures = False
-                
-                # Get the active document to use with Redshift export
-                active_doc = c4d.documents.GetActiveDocument()
-                
-                # Call the export method - this should work non-interactively
-                success = rs_renderer.ExportProxy(active_doc, proxy_obj_clone, settings)
-                
-                if success:
-                    self.logger.log(f"✓ Redshift proxy exported using Redshift Python API: {proxy_path}")
-                else:
-                    self.logger.log(f"⚠ Redshift Python API export failed for {proxy_path}, trying fallback methods", "WARNING")
-                    raise RuntimeError("Redshift API export failed")
-                    
-            except ImportError:
-                self.logger.log("ℹ Redshift Python module not available, using fallback export methods", "INFO")
-                # Fall back to the previous approach
-                self._export_redshift_proxy_fallback(proxy_doc, proxy_path, proxy_obj_clone)
-            except Exception as e:
-                self.logger.log(f"⚠ Redshift Python API export failed: {str(e)}, trying fallback methods", "WARNING")
-                # Fall back to the previous approach
-                self._export_redshift_proxy_fallback(proxy_doc, proxy_path, proxy_obj_clone)
+        # Check if the .rs proxy file already exists in the working directory
+        if os.path.exists(proxy_path):
+            self.logger.log(f"ℹ Redshift proxy already exists, skipping creation: {proxy_path}")
+            return
         
-        except Exception as e:
-            self.logger.log(f"✗ Error creating Redshift proxy: {str(e)}", "ERROR")
+        self.logger.log(f"📁 Creating new proxy at: {proxy_path}")
+        
+        # Process materials: replace with closest matching materials from the active document
+        if material_properties and len(root_objects) > 0:
+            for obj in root_objects:
+                self._replace_materials_with_closest_match(obj, material_properties, doc)
+        
+        # Use the working fallback method which exports using format ID 1038650
+        # This will export the current document (which now contains only the JT geometry with replaced materials) as a proxy file
+        self._export_redshift_proxy_fallback(current_doc, proxy_path, current_doc_obj)
+        
+        # Increment the main counter to indicate successful processing
+        self.total_files_processed += 1
+        
+        # Increment the main counter to indicate successful processing
+        self.total_files_processed += 1
     
     def _export_redshift_proxy_fallback(self, proxy_doc, proxy_path, proxy_obj_clone):
         """Fallback method for Redshift proxy export when Python API is not available"""
@@ -1322,7 +1303,10 @@ class Cinema4DImporter:
     
     def _process_compile_redshift_proxies(self, jt_path, parent_obj, material_properties, doc, jt_transform=None):
         """Process compile redshift proxies mode - creates assembly with proxy references"""
-        self.logger.log(f"🔗 Compiling redshift proxy assembly for: {os.path.basename(jt_path)}")
+        # Update progress tracking counter
+        self.processed_rs_count += 1
+        remaining_files = max(0, self.total_rs_files - self.processed_rs_count)
+        self.logger.log(f"🔗 Compiling redshift proxy assembly for: {os.path.basename(jt_path)} ({self.processed_rs_count}/{self.total_rs_files}, {remaining_files} left)")
         
         # Get the hidden container for proxy objects (_PLMXML_Geometries)
         hidden_container = self.geometry_manager.get_or_create_hidden_container(doc)
@@ -1339,7 +1323,6 @@ class Cinema4DImporter:
             self.logger.log(f"📁 JT null object inserted successfully: {jt_null_obj.GetUp().GetName() if jt_null_obj.GetUp() else 'No parent'}")
         else:
             self.logger.log(f"✗ Failed to create JT null object for: {jt_name}", "ERROR")
-            self.total_files_processed += 1
             return
         
         # Check if proxy file exists
