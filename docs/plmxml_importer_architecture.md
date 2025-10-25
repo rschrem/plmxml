@@ -1,5 +1,5 @@
 # PLMXML Assembly Importer Plugin - Technical Architecture Document
-**Version:** 3.11
+**Version:** 3.12
 **Git Commit:** $Format:%H$
 
 ## 1. System Overview
@@ -58,6 +58,7 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 - No manual PLMXML file input field or browse button, auto-detection only
 - Global working directory variable used for all file operations eliminating path arithmetic
 - Dialog closes immediately on OK press using threading to ensure proper closure before import process starts
+- Enhanced threading implementation for improved UI responsiveness during import operations
 - Progress feedback display
 - Results summary
 
@@ -281,6 +282,7 @@ Scene Structure:
 - Follows Cinema 4D 2025 UI conventions and best practices
 - Handles object insertion order correctly (InsertObject first, then InsertUnder)
 - Uses proper Redshift parameter IDs (c4d.REDSHIFT_PROXY_FILE, c4d.REDSHIFT_PROXY_MODE)
+- Implements threading for UI responsiveness and proper dialog closure before import process begins
 
 ### 8.2 Redshift Integration
 - Creates .rs proxy files for Redshift using proper Cinema 4D 2025 command (1038650)

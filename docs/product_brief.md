@@ -1,5 +1,5 @@
 # Product Brief
-**Version:** 3.11
+**Version:** 3.12
 **Git Commit:** $Format:%H$
 
 Complete Specification for PLMXML Assembly Importer Plugin for Cinema 4D 2025
@@ -100,6 +100,7 @@ Usability
 * Auto-detect PLMXML file from working directory (initialized to C4D document directory using doc.GetDocumentPath() directly)
 * No manual PLMXML file input field or browse button in UI - auto-detection only
 * Dialog closes immediately when OK is pressed using threading to ensure proper closure before import process starts, preventing GUI blocking
+* Enhanced threading implementation for improved UI responsiveness during import operations
 
 Compatibility
 * Full compatibility with Cinema 4D 2025
