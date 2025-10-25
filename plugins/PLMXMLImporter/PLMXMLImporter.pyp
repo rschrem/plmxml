@@ -303,22 +303,65 @@ class Cinema4DMaterialManager:
             doc_mat = doc_mat.GetNext()
         self.logger.log(f"  📊 Total materials in document: {mat_count}")
         
-        existing_material_in_doc = self._find_material_in_document(mat_name, doc)
-        if existing_material_in_doc:
-            self.logger.log(f"♻ Reusing existing material in document: {existing_material_in_doc.GetName()}")
-            # Cache this material to avoid recreation
-            self.material_cache[mat_name] = existing_material_in_doc
-            # Get its properties for cache
-            props = self._extract_material_properties(existing_material_in_doc)
-            if props:
-                self.material_properties_cache[mat_name] = props
-            return existing_material_in_doc
+        # For Step 1, use simpler logic - only check for exact name match
+        if is_step1:
+            existing_material_in_doc = self._find_material_in_document(mat_name, doc)
+            if existing_material_in_doc:
+                self.logger.log(f"♻ Reusing existing material in document: {existing_material_in_doc.GetName()}")
+                # Cache this material to avoid recreation using the actual material name
+                actual_mat_name = existing_material_in_doc.GetName()
+                self.material_cache[actual_mat_name] = existing_material_in_doc
+                # Also make sure the requested name maps to the same material
+                self.material_cache[mat_name] = existing_material_in_doc
+                # Get its properties for cache
+                props = self._extract_material_properties(existing_material_in_doc)
+                if props:
+                    self.material_properties_cache[actual_mat_name] = props
+                    self.material_properties_cache[mat_name] = props
+                return existing_material_in_doc
+        else:
+            # For other modes, use the existing improved algorithm
+            existing_material_in_doc = self._find_material_in_document(mat_name, doc)
+            if existing_material_in_doc:
+                self.logger.log(f"♻ Reusing existing material in document: {existing_material_in_doc.GetName()}")
+                # Cache this material to avoid recreation using the actual material name
+                actual_mat_name = existing_material_in_doc.GetName()
+                self.material_cache[actual_mat_name] = existing_material_in_doc
+                # Also make sure the requested name maps to the same material
+                self.material_cache[mat_name] = existing_material_in_doc
+                # Get its properties for cache
+                props = self._extract_material_properties(existing_material_in_doc)
+                if props:
+                    self.material_properties_cache[actual_mat_name] = props
+                    self.material_properties_cache[mat_name] = props
+                return existing_material_in_doc
+        
+        # For Step 1, we can also try to find materials that might have been named differently by C4D
+        # This is to handle the case where C4D renamed the material during first creation
+        if is_step1:
+            # Check if there's already a material that was created from the same source data
+            # but got renamed by C4D (e.g. requested "Material.123" but C4D created "Material")
+            existing_material = self._find_material_with_same_source_properties(material_data, doc, mode)
+            if existing_material:
+                self.logger.log(f"♻ Reusing existing material with same source properties: {existing_material.GetName()}")
+                # Cache this material to avoid recreation using the actual material name
+                actual_mat_name = existing_material.GetName()
+                self.material_cache[actual_mat_name] = existing_material
+                # Also make sure the requested name maps to the same material
+                self.material_cache[mat_name] = existing_material
+                # Get its properties for cache
+                props = self._extract_material_properties(existing_material)
+                if props:
+                    self.material_properties_cache[actual_mat_name] = props
+                    self.material_properties_cache[mat_name] = props
+                return existing_material
         
         # Check if we already have a similar material in our cache using improved algorithm
-        existing_material = self.find_existing_material(material_data, doc, mode)
-        if existing_material:
-            self.logger.log(f"♻ Reusing cached material: {existing_material.GetName()}")
-            return existing_material
+        if not is_step1:  # Only for non-Step 1 modes
+            existing_material = self.find_existing_material(material_data, doc, mode)
+            if existing_material:
+                self.logger.log(f"♻ Reusing cached material: {existing_material.GetName()}")
+                return existing_material
         
         # Get material properties using improved inference algorithm
         props = MaterialPropertyInference.infer_material_properties(material_data, self.logger)
@@ -326,7 +369,7 @@ class Cinema4DMaterialManager:
         # For Step 1, Redshift must be available
         if is_step1:
             # Create Redshift OpenPBR material for Step 1
-            mat = self._create_redshift_openpbr_material(mat_name, props, doc)
+            mat = self._create_redshift_material(mat_name, props, doc)
             if mat:
                 self.logger.log(f"🎨 Creating Redshift OpenPBR material: {mat_name} (Step 1)")
             else:
@@ -345,18 +388,32 @@ class Cinema4DMaterialManager:
             self.logger.log("✗ Failed to create new material", "ERROR")
             return None
         
-        # Insert material into the document
-        doc.InsertMaterial(mat)
+        # For standard materials, we may need to insert them into the document
+        # Redshift materials are inserted within their creation function
+        # Check if the material is already in the document, and if not, insert it
+        if not self._verify_material_in_document(mat.GetName(), doc):
+            self.logger.log(f"📦 Material '{mat.GetName()}' not found in document, inserting now")
+            doc.InsertMaterial(mat)
+            # Check if C4D renamed the material during insertion
+            actual_name_after_insert = mat.GetName()
+            original_name = mat_name if 'mat_name' in locals() else (material_data.get('mat_group', '') + '_' + material_data.get('mat_term', '') + '_' + material_data.get('mat_number', ''))
+            if actual_name_after_insert != original_name and '_' in original_name:
+                self.logger.log(f"🚨 C4D renamed standard material from something like '{original_name}' to '{actual_name_after_insert}'")
         
         # Verify the material was actually added to the document
         if not self._verify_material_in_document(mat.GetName(), doc):
             self.logger.log(f"⚠ Material may not have been properly added to document: {mat.GetName()}", "WARNING")
         
-        # Cache this material
-        self.material_cache[mat_name] = mat
-        self.material_properties_cache[mat_name] = props
+        # Cache this material using the actual name assigned by C4D (in case it was renamed)
+        actual_mat_name = mat.GetName()
+        self.material_cache[actual_mat_name] = mat
+        self.material_properties_cache[actual_mat_name] = props
         
-        self.logger.log(f"→ Created material: {mat.GetName()}")
+        # Also make sure the originally requested name maps to the same material for consistency
+        if mat_name != actual_mat_name:
+            self.material_cache[mat_name] = mat
+        
+        self.logger.log(f"→ Created material: {actual_mat_name}")
         return mat
     
     def _create_standard_material(self, mat_group, mat_standard, mat_number, mat_term, props):
@@ -368,8 +425,15 @@ class Cinema4DMaterialManager:
             return None
         
         name_parts = [p for p in [mat_group, mat_term, mat_number] if p]
-        mat_name = "_".join(name_parts) if name_parts else "Material"
+        original_mat_name = "_".join(name_parts) if name_parts else "Material"
+        
+        # Sanitize the name to only contain alphanumeric characters, underscores, hyphens, and dots
+        import re
+        mat_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', original_mat_name)
+        self.logger.log(f"🎨 Creating Standard material with original name: '{original_mat_name}' -> sanitized name: '{mat_name}'")
+        
         mat.SetName(mat_name)
+        self.logger.log(f"   Material object created with requested name: '{mat.GetName()}'")
         
         # Set base color
         mat[c4d.MATERIAL_COLOR_COLOR] = props['base_color']
@@ -465,12 +529,24 @@ class Cinema4DMaterialManager:
         return mat
     
 
-    def _create_redshift_openpbr_material(self, mat_name, props, doc):
-        """Create a Redshift Standard Material"""
+    def _create_redshift_material(self, mat_name, props, doc):
+        
+        # Sanitize the material name to only contain alphanumeric characters, underscores, hyphens, and dots
+        import re
+        original_mat_name = mat_name
+        mat_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', mat_name)
+        self.logger.log(f"🎨 Creating Redshift material with original name: '{original_mat_name}' -> sanitized name: '{mat_name}'")
+        
+        # Check if a material with identical name already exists in the document
+        existing_material = self._find_material_in_document(mat_name, doc)
+        if existing_material:
+            self.logger.log(f"⚠ Material with name '{mat_name}' already exists in document, reusing existing material")
+            return existing_material
         
         # Create material
         mat = c4d.BaseMaterial(c4d.Mmaterial)
         mat.SetName(mat_name)
+        self.logger.log(f"   Material object created with requested name: '{mat.GetName()}'")
         
         # Get node material and create graph
         nodeMaterial = mat.GetNodeMaterialReference()
@@ -480,8 +556,19 @@ class Cinema4DMaterialManager:
         if graph.IsNullValue():
             raise RuntimeError(f"Failed to create Redshift graph")
         
-        # Insert material first
+        # Insert material first and immediately check what name C4D assigned
         doc.InsertMaterial(mat)
+        actual_assigned_name = mat.GetName()
+        self.logger.log(f"   Material inserted into document. Requested: '{mat_name}', C4D assigned: '{actual_assigned_name}'")
+        
+        # If C4D changed the name, we should check if this new name already exists
+        if actual_assigned_name != mat_name:
+            self.logger.log(f"   🚨 WARNING: C4D renamed material from '{mat_name}' to '{actual_assigned_name}'")
+            # Check if the material with the new assigned name already exists
+            # (this shouldn't happen in a normal case, but if it does we should handle it)
+            other_material_with_same_name = self._find_material_in_document(actual_assigned_name, doc)
+            if other_material_with_same_name and other_material_with_same_name != mat:
+                self.logger.log(f"   ⚠️  Another material with name '{actual_assigned_name}' already exists!")
         
         try:
             # Use the most common/reliable node: Standard Material
@@ -517,7 +604,7 @@ class Cinema4DMaterialManager:
                                 colorPort.SetPortValue(maxon.Color(color[0], color[1], color[2]))
                     
                     # Metalness (0.0 for dielectric, 1.0 for metal)
-                    if 'base_metalness' in props:
+                    if 'metalness' in props:
                         metalnessPort = materialNode.GetInputs().FindChild(
                             "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.metalness")
                         if metalnessPort:
@@ -554,6 +641,8 @@ class Cinema4DMaterialManager:
 #        doc.InsertMaterial(mat)
 
         c4d.EventAdd()
+        final_name = mat.GetName()
+        self.logger.log(f"   ✅ Material creation completed. Final name: '{final_name}'")
         return mat
 
     def _set_openpbr_properties(self, openpbr_node, props):
@@ -652,17 +741,71 @@ class Cinema4DMaterialManager:
     
     def _find_material_in_document(self, mat_name, doc):
         """Find a material with specific name in the document"""
-        self.logger.log(f"🔍 Searching for material '{mat_name}' in document")
+        import re
+        # Sanitize the name for consistent comparison
+        sanitized_mat_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', mat_name)
+        self.logger.log(f"🔍 Searching for material '{mat_name}' (sanitized: {sanitized_mat_name}) in document")
         mat_count = 0
         mat = doc.GetFirstMaterial()
         while mat:
             mat_count += 1
             self.logger.log(f"  🎨 Found material: {mat.GetName()}")
-            if mat.GetName() == mat_name:
-                self.logger.log(f"  ✅ Match found for '{mat_name}'")
+            # Sanitize the existing material name for comparison
+            sanitized_existing_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', mat.GetName())
+            if sanitized_existing_name == sanitized_mat_name:
+                self.logger.log(f"  ✅ Match found for '{mat_name}' (sanitized: {sanitized_existing_name})")
                 return mat
             mat = mat.GetNext()
         self.logger.log(f"  ❌ No match found for '{mat_name}' (checked {mat_count} materials)")
+        return None
+    
+    def _find_material_with_same_source_properties(self, material_data, doc, mode):
+        """Find a material that was created from the same source properties (for Step 1)"""
+        # This method looks for materials that may have been created from the same source
+        # but renamed by C4D (e.g., requested "Material.123" but C4D created "Material")
+        import re
+        
+        # Look for materials that start with the same base pattern but might have been truncated
+        mat_group = material_data.get('mat_group', 'Unknown')
+        mat_term = material_data.get('mat_term', 'Unknown') 
+        mat_number = material_data.get('mat_number', 'Unknown')
+        
+        # Create base pattern (sanitized)
+        base_parts = [p for p in [mat_group, mat_term, mat_number] if p]
+        base_name = "_".join(base_parts) if base_parts else "Material"
+        base_name_sanitized = re.sub(r'[^a-zA-Z0-9_.-]', '_', base_name)
+        
+        self.logger.log(f"🔍 Searching for material with same source properties. Base pattern: '{base_name_sanitized}'")
+        
+        mat = doc.GetFirstMaterial()
+        while mat:
+            existing_name = mat.GetName()
+            existing_name_sanitized = re.sub(r'[^a-zA-Z0-9_.-]', '_', existing_name)
+            
+            self.logger.log(f"  🎨 Checking material: '{existing_name}' (sanitized: '{existing_name_sanitized}')")
+            
+            # Check if this material name starts with our base pattern (could be truncated version)
+            if existing_name_sanitized.startswith(base_name_sanitized):
+                self.logger.log(f"    🔄 Base pattern match found: '{existing_name_sanitized}' starts with '{base_name_sanitized}'")
+                
+                # Check if it's just a truncated version (like "Material" for "Material.123")
+                remaining = existing_name_sanitized[len(base_name_sanitized):]
+                if not remaining or (remaining.startswith('.') and remaining[1:].replace('-', '').replace('_', '').isalnum()):
+                    self.logger.log(f"    ✅ Potential truncated version: '{existing_name}' matches '{base_name_sanitized}'")
+                    self.logger.log(f"    ✅ Returning material based on name pattern match: '{existing_name}'")
+                    return mat
+            
+            # Check the reverse - if our requested pattern is a truncated version of existing
+            elif base_name_sanitized.startswith(existing_name_sanitized):
+                remaining = base_name_sanitized[len(existing_name_sanitized):]
+                if remaining.startswith('.') and remaining[1:].replace('-', '').replace('_', '').isalnum():
+                    self.logger.log(f"    🔄 Reverse pattern match: requested '{base_name_sanitized}' vs existing '{existing_name_sanitized}'")
+                    self.logger.log(f"    ✅ Returning material based on reverse pattern match: '{existing_name}'")
+                    return mat
+            
+            mat = mat.GetNext()
+        
+        self.logger.log(f"  ❌ No material found with same source properties")
         return None
     
     def _verify_material_in_document(self, mat_name, doc):
@@ -724,7 +867,10 @@ class Cinema4DMaterialManager:
         existing_mat = self._find_existing_material_improved(mat_name, mat_group, mat_standard, mat_number, mat_term, treatment, doc, mode)
         if existing_mat:
             self.logger.log(f"♻ Reusing existing material: {existing_mat.GetName()}")
+            # Cache using both the signature and the actual material name
+            actual_mat_name = existing_mat.GetName()
             self.material_cache[signature] = existing_mat
+            self.material_cache[actual_mat_name] = existing_mat
             return existing_mat
         
         return None
@@ -751,8 +897,10 @@ class Cinema4DMaterialManager:
         
         # Use the provided document parameter
         
-        # First pass: Look for exact name match
-        self.logger.log(f"  🔍 First pass - searching for exact name match: {mat_name}")
+        # First pass: Look for exact name match (using sanitized names for consistency)
+        import re
+        sanitized_mat_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', mat_name)
+        self.logger.log(f"  🔍 First pass - searching for exact name match: {mat_name} (sanitized: {sanitized_mat_name})")
         mat = doc.GetFirstMaterial()
         while mat:
             self.logger.log(f"    🎨 Checking material: {mat.GetName()}, Type: {mat.GetType()}")
@@ -770,8 +918,10 @@ class Cinema4DMaterialManager:
                 redshift_match = (mat.GetType() == redshift_plugin_id)
                 material_type_match = standard_match or redshift_match
             
-            if material_type_match and mat.GetName() == mat_name:
-                self.logger.log(f"    ✅ Exact name match found: {mat.GetName()}")
+            # Sanitize the existing material name for comparison  
+            sanitized_existing_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', mat.GetName())
+            if material_type_match and sanitized_existing_name == sanitized_mat_name:
+                self.logger.log(f"    ✅ Exact name match found: {mat.GetName()} (sanitized: {sanitized_existing_name})")
                 if self._compare_material_properties(mat, props):
                     self.logger.log(f"    ✅ Properties also match, returning: {mat.GetName()}")
                     return mat
@@ -782,8 +932,11 @@ class Cinema4DMaterialManager:
         self.logger.log(f"  ❌ No exact name match found for: {mat_name}")
         
         # Second pass: Look for materials with same base type (more lenient)
-        # Extract material base type (first part before underscore)
+        # Extract material base type (first part before underscore/slash) and sanitize it
+        import re
         mat_base_type = mat_name.split('_')[0] if '_' in mat_name else mat_name
+        mat_base_type = mat_base_type.split('/')[0] if '/' in mat_base_type else mat_base_type
+        mat_base_type = re.sub(r'[^a-zA-Z0-9_.-]', '_', mat_base_type)  # Sanitize base type
         self.logger.log(f"  🔍 Second pass - searching for materials with base type: {mat_base_type}")
         
         mat = doc.GetFirstMaterial()
@@ -802,7 +955,11 @@ class Cinema4DMaterialManager:
                 material_type_match = standard_match or redshift_match
             
             if material_type_match:
-                existing_base_type = mat.GetName().split('_')[0] if '_' in mat.GetName() else mat.GetName()
+                # Sanitize the existing material's name for consistent comparison
+                existing_name = mat.GetName()
+                existing_base_type = existing_name.split('_')[0] if '_' in existing_name else existing_name
+                existing_base_type = existing_base_type.split('/')[0] if '/' in existing_base_type else existing_base_type
+                existing_base_type = re.sub(r'[^a-zA-Z0-9_.-]', '_', existing_base_type)  # Sanitize base type
                 self.logger.log(f"    🎨 Checking material base type: {existing_base_type} for material: {mat.GetName()}")
                 
                 # If base types match (e.g., both "STAHL"), check if properties are similar
@@ -816,7 +973,194 @@ class Cinema4DMaterialManager:
             mat = mat.GetNext()
         
         self.logger.log(f"  ❌ No base type matches found for: {mat_base_type}")
+        
+        # Third pass: Look for materials created from the same source properties
+        # by inferring properties from existing materials and comparing to target properties
+        self.logger.log(f"  🔍 Third pass - searching for materials with matching source properties")
+        mat = doc.GetFirstMaterial()
+        while mat:
+            # Check if material matches type requirements based on mode
+            material_type_match = False
+            if mode == "material_extraction":
+                # In Step 1, look for Redshift materials if available - use plugin ID instead of Mredshift
+                redshift_plugin_id = 1036223  # Redshift plugin ID
+                material_type_match = (mat.GetType() == redshift_plugin_id)
+            else:
+                # For other modes, look for either standard or Redshift materials (if available)
+                standard_match = (mat.GetType() == c4d.Mmaterial)
+                redshift_plugin_id = 1036223  # Redshift plugin ID
+                redshift_match = (mat.GetType() == redshift_plugin_id)
+                material_type_match = standard_match or redshift_match
+            
+            if material_type_match:
+                # Try to infer what the source properties of this material would have been
+                # by using some characteristics of the material name or properties
+                inferred_existing_props = self._infer_material_properties_from_existing_material(mat, self.logger)
+                
+                if inferred_existing_props and self._materials_are_similar(props, inferred_existing_props):
+                    self.logger.log(f"  → Found material with similar source properties: {mat.GetName()}")
+                    return mat
+            mat = mat.GetNext()
+        
+        self.logger.log(f"  ❌ No materials found with matching source properties")
+        
+        # Fourth pass: Look for materials that might have been created from similar source
+        # but have different names due to C4D renaming (e.g., "Material.1", "Material.2", etc.)
+        self.logger.log(f"  🔍 Fourth pass - searching for materials with similar names that might be renamed versions")
+        
+        # Check if the document already contains a material that was likely created from the same source
+        # by looking for materials that have similar starting patterns but were suffixed by C4D
+        # For example, if we're looking for "STAHL_STAHLGUSS_20MnB4_1_5525", check for "STAHL_STAHLGUSS_20MnB4_1" or similar
+        mat = doc.GetFirstMaterial()
+        while mat:
+            # Check if material matches type requirements based on mode
+            material_type_match = False
+            if mode == "material_extraction":
+                # In Step 1, look for Redshift materials if available - use plugin ID instead of Mredshift
+                redshift_plugin_id = 1036223  # Redshift plugin ID
+                material_type_match = (mat.GetType() == redshift_plugin_id)
+            else:
+                # For other modes, look for either standard or Redshift materials (if available)
+                standard_match = (mat.GetType() == c4d.Mmaterial)
+                redshift_plugin_id = 1036223  # Redshift plugin ID
+                redshift_match = (mat.GetType() == redshift_plugin_id)
+                material_type_match = standard_match or redshift_match
+            
+            if material_type_match:
+                existing_name = mat.GetName()
+                
+                # Check if this material name could be a C4D-renamed version of our requested name
+                # by comparing the common prefix and checking if the difference is just a suffix like ".1", ".2", etc.
+                # Apply sanitization to both names for consistent comparison
+                import re
+                sanitized_original = re.sub(r'[^a-zA-Z0-9_.-]', '_', mat_name)
+                sanitized_existing = re.sub(r'[^a-zA-Z0-9_.-]', '_', existing_name)
+                
+                if self._could_be_renamed_version(sanitized_original, sanitized_existing):
+                    self.logger.log(f"    🔄 Found potentially renamed version: {existing_name} (for requested: {mat_name}, sanitized: {sanitized_original} vs {sanitized_existing})")
+                    
+                    # If it's likely the same material but with a renamed suffix, check properties too
+                    if self._compare_material_properties(mat, props):
+                        self.logger.log(f"    ✅ Properties also match, returning: {mat.GetName()}")
+                        return mat
+                    else:
+                        self.logger.log(f"    ❌ Properties don't match for potentially renamed material: {mat.GetName()}")
+            mat = mat.GetNext()
+        
+        self.logger.log(f"  ❌ No renamed version matches found")
         return None
+    
+    def _could_be_renamed_version(self, original_name, existing_name):
+        """
+        Check if an existing material name could be a C4D-renamed version of the original name.
+        For example: "STAHL_STAHLGUSS_20MnB4_1" vs "STAHL_STAHLGUSS_20MnB4_1.1"
+        """
+        # Remove any suffixes that look like C4D's numbering (.1, .2, .3, etc.)
+        import re
+        # Split on the last dot and check if what follows is just numbers
+        if '.' in existing_name:
+            parts = existing_name.rsplit('.', 1)
+            if len(parts) == 2 and parts[1].isdigit():  # If suffix is numeric
+                base_existing_name = parts[0]
+                return base_existing_name == original_name
+        
+        # Or check if original_name is a prefix of existing_name with some separator
+        if existing_name.startswith(original_name):
+            # Check if the rest is a separator followed by numbers (e.g., "_1", "_2")
+            remaining = existing_name[len(original_name):]
+            if remaining.startswith('_') and remaining[1:].isdigit():
+                return True
+        
+        # Also handle case where C4D truncated part of the name (e.g., original was "name_part1_part2" 
+        # but C4D created "name_part1" because it was too long or already existed)
+        if original_name.startswith(existing_name):
+            # The existing name is a truncated/partial version of the original
+            # This could happen when C4D shortens names that are too long or already exist
+            original_remaining = original_name[len(existing_name):]
+            # If the remaining part starts with underscore or dot (like "_part2" or ".part2"), it might be truncated
+            if original_remaining.startswith('_') or original_remaining.startswith('.'):
+                # Check if the truncated part is numeric or specific material ID-like
+                separator = original_remaining[0]  # '_' or '.'
+                remaining_part = original_remaining[1:]
+                if remaining_part.replace('.', '').replace('-', '').replace('_', '').isalnum():
+                    return True
+        
+        # Also handle the reverse case where the existing name is the truncated version
+        # For example: we're looking for "Material" but C4D truncated "Material.123" to "Material"
+        if existing_name.startswith(original_name):
+            existing_remaining = existing_name[len(original_name):]
+            if existing_remaining.startswith('_') or existing_remaining.startswith('.'):
+                remaining_part = existing_remaining[1:]
+                if remaining_part.replace('.', '').replace('-', '').replace('_', '').isalnum():
+                    return True
+        
+        return False
+    
+    def _infer_material_properties_from_existing_material(self, mat, logger):
+        """Infer source material properties from an existing material"""
+        try:
+            # Start with default values
+            props = {
+                'base_color': c4d.Vector(0.7, 0.7, 0.7),
+                'metalness': 0.0,
+                'roughness': 0.5,
+                'ior': 1.5,
+                'transparency': 0.0
+            }
+            
+            # Get the material name to extract keyword-based inferences
+            mat_name = mat.GetName().lower()
+            
+            # Update properties based on material name keywords (similar to inference algorithm)
+            if any(keyword in mat_name for keyword in MaterialPropertyInference.METAL_KEYWORDS):
+                props.update(MaterialPropertyInference._metal_properties(mat_name, mat_name))
+            elif any(keyword in mat_name for keyword in MaterialPropertyInference.PLASTIC_KEYWORDS):
+                props.update(MaterialPropertyInference._plastic_properties(mat_name, mat_name))
+            elif any(keyword in mat_name for keyword in MaterialPropertyInference.RUBBER_KEYWORDS):
+                props.update(MaterialPropertyInference._rubber_properties(mat_name))
+            elif any(keyword in mat_name for keyword in MaterialPropertyInference.WOOD_KEYWORDS):
+                props.update(MaterialPropertyInference._wood_properties(mat_name))
+            elif any(keyword in mat_name for keyword in MaterialPropertyInference.GLASS_KEYWORDS):
+                props.update(MaterialPropertyInference._glass_properties(mat_name))
+            elif any(keyword in mat_name for keyword in MaterialPropertyInference.SEALANT_KEYWORDS):
+                props.update(MaterialPropertyInference._sealant_properties(mat_name))
+            else:
+                # Extract base properties from actual material values
+                try:
+                    props['base_color'] = mat[c4d.MATERIAL_COLOR_COLOR] if mat[c4d.MATERIAL_COLOR_COLOR] else c4d.Vector(0.7, 0.7, 0.7)
+                except:
+                    pass
+                
+                # Get reflection properties if available
+                try:
+                    if mat[c4d.MATERIAL_USE_REFLECTION]:
+                        layer = mat.GetReflectionLayerIndex(0)
+                        if layer:
+                            layer_id = layer.GetDataID()
+                            try:
+                                props['roughness'] = mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS]
+                            except:
+                                pass
+                                
+                            # Estimate metalness based on reflection color and Fresnel settings
+                            try:
+                                fresnel_mode = mat[layer_id + c4d.REFLECTION_LAYER_FRESNEL_MODE]
+                                props['metalness'] = 1.0 if fresnel_mode == c4d.REFLECTION_FRESNEL_CONDUCTOR else 0.0
+                            except:
+                                # If we can't determine from fresnel, estimate based on reflection color
+                                try:
+                                    refl_color = mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR]
+                                    # If reflection color is grayish, likely dielectric; if colored, possibly metallic
+                                    props['metalness'] = 0.0  # Default to non-metallic
+                                except:
+                                    pass
+                except:
+                    pass
+            
+            return props
+        except Exception as e:
+            logger.log(f"Error inferring properties from existing material: {str(e)}", "WARNING")
+            return None
     
     def _compare_material_properties(self, mat, props):
         """Compare existing material properties with target properties - uses lenient tolerance"""
@@ -1020,8 +1364,14 @@ class Cinema4DMaterialManager:
         
         # Format: {mat_group}_{mat_term}_{mat_number}
         mat_name = f"{mat_group}_{mat_term}_{mat_number}"
-        self.logger.log(f"🏷️ Generated material name: {mat_name} (from group='{mat_group}', term='{mat_term}', number='{mat_number}')")
-        return mat_name
+        
+        # Sanitize the name to only contain alphanumeric characters, underscores, hyphens, and dots
+        # Replace any character that is not alphanumeric, underscore, hyphen, or dot with underscore
+        import re
+        sanitized_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', mat_name)
+        
+        self.logger.log(f"🏷️ Generated material name: {mat_name} -> {sanitized_name} (from group='{mat_group}', term='{mat_term}', number='{mat_number}')")
+        return sanitized_name
 
 
 class PLMXMLParser:
