@@ -949,28 +949,34 @@ class Cinema4DImporter:
             self.logger.log(f"📊 Total .rs files to check: {self.total_rs_files}")
         self.logger.log("="*80)
         
-        # Get root references for the hierarchy
-        root_refs = plmxml_parser.build_hierarchy()
-        
-        if not root_refs:
-            self.logger.log("⚠ No root references found in PLMXML", "WARNING")
-            return False
-        
-        # Create main assembly container
-        assembly_root = c4d.BaseObject(c4d.Onull)
-        assembly_root.SetName("Assembly")
-        doc.InsertObject(assembly_root)
-        
-        # Process each root reference
-        for root_ref in root_refs:
-            if root_ref in plmxml_parser.instances:
-                self._process_instance(
-                    plmxml_parser.instances[root_ref], 
-                    plmxml_parser, 
-                    doc, 
-                    assembly_root, 
-                    mode
-                )
+        # Special handling for Step 2 (create_redshift_proxies) - no assembly tree building
+        if mode == "create_redshift_proxies":
+            # Process all JT files directly without building assembly tree
+            self._process_all_jt_files_for_proxy_creation(plmxml_parser, doc)
+        else:
+            # Normal assembly building for other modes
+            # Get root references for the hierarchy
+            root_refs = plmxml_parser.build_hierarchy()
+            
+            if not root_refs:
+                self.logger.log("⚠ No root references found in PLMXML", "WARNING")
+                return False
+            
+            # Create main assembly container
+            assembly_root = c4d.BaseObject(c4d.Onull)
+            assembly_root.SetName("Assembly")
+            doc.InsertObject(assembly_root)
+            
+            # Process each root reference
+            for root_ref in root_refs:
+                if root_ref in plmxml_parser.instances:
+                    self._process_instance(
+                        plmxml_parser.instances[root_ref], 
+                        plmxml_parser, 
+                        doc, 
+                        assembly_root, 
+                        mode
+                    )
         
         # Update UI to reflect changes
         c4d.EventAdd()
@@ -999,6 +1005,40 @@ class Cinema4DImporter:
         self.logger.log("-" * 80)
         
         return True
+    
+    def _process_all_jt_files_for_proxy_creation(self, plmxml_parser, doc):
+        """Process all JT files directly for proxy creation without building assembly tree - Step 2 only"""
+        # Iterate through all instances and parts to collect all unique JT files
+        processed_jt_files = set()  # Keep track of processed files to avoid duplicates
+        
+        # Process all instances
+        for instance_id, instance_data in plmxml_parser.instances.items():
+            part_ref = instance_data['part_ref']
+            
+            # Skip if part reference is invalid
+            if not part_ref or part_ref not in plmxml_parser.parts:
+                continue
+            
+            part_data = plmxml_parser.parts[part_ref]
+            
+            # Process all JT files for this part
+            for jt_data in part_data.get('jt_files', []):
+                jt_file = jt_data['file']
+                
+                # Skip if we've already processed this JT file
+                if jt_file in processed_jt_files:
+                    continue
+                
+                processed_jt_files.add(jt_file)
+                
+                # Get full path to JT file (relative to working directory)
+                jt_full_path = os.path.join(self.working_directory, jt_file)
+                
+                # Get material properties from the JT data
+                material_properties = jt_data.get('material_properties', {})
+                
+                # Process this JT file for proxy creation directly
+                self._process_redshift_proxy_creation(jt_full_path, None, material_properties, doc)
     
     def _count_total_files(self, plmxml_parser, mode):
         """Count total files to be processed based on mode"""
@@ -1104,7 +1144,7 @@ class Cinema4DImporter:
         # Skip incremental save in material extraction mode, just reset counter
         self.files_since_last_save = 0  # Reset counter to prevent incremental saves during material extraction
     
-    def _process_redshift_proxy_creation(self, jt_path, parent_obj, material_properties, doc):
+    def _process_redshift_proxy_creation(self, jt_path, parent_obj_unused, material_properties, doc):
         """Process redshift proxy creation - Step 2: Create proxy files only, no assembly tree building"""
         # Update progress tracking counter
         self.processed_jt_count += 1
