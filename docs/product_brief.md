@@ -1,5 +1,5 @@
 # Product Brief
-**Version:** 3.1
+**Version:** 3.7
 **Git Commit:** $Format:%H$
 
 Complete Specification for PLMXML Assembly Importer Plugin for Cinema 4D 2025
@@ -12,7 +12,7 @@ Installation & Registration
 * Plugin ID: 1054321
 * Plugin Name: "PLMXML Assembly Importer"
 * Menu Location: Extensions → User Scripts → PLMXML Assembly Importer
-* Version: 3.1
+* Version: 3.7
 Dependencies
 * Cinema 4D 2025 or later
 * Redshift for Cinema 4D (optional, for proxy modes)
@@ -89,7 +89,7 @@ Usability
 * Maintain familiar Cinema 4D UI conventions with OK button on right, Cancel button on left
 * Auto-detect PLMXML file from working directory (initialized to C4D document directory using doc.GetDocumentPath() directly)
 * No manual PLMXML file input field or browse button in UI - auto-detection only
-* Dialog closes immediately when OK is pressed before starting import process
+* Dialog closes immediately when OK is pressed using threading to ensure proper closure before import process starts, preventing GUI blocking
 
 Compatibility
 * Full compatibility with Cinema 4D 2025

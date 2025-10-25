@@ -1,5 +1,5 @@
 # PLMXML Assembly Importer Plugin - Technical Architecture Document
-**Version:** 3.1
+**Version:** 3.7
 **Git Commit:** $Format:%H$
 
 ## 1. System Overview
@@ -57,7 +57,7 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 - Button management with OK on right, Cancel on left
 - No manual PLMXML file input field or browse button, auto-detection only
 - Global working directory variable used for all file operations eliminating path arithmetic
-- Dialog closes immediately on OK press
+- Dialog closes immediately on OK press using threading to ensure proper closure before import process starts
 - Progress feedback display
 - Results summary
 
@@ -118,6 +118,7 @@ The PLMXML Assembly Importer is a Cinema 4D 2025 Python plugin that enables the 
 - Create instance objects for repeated geometries
 - Apply transforms to instances and geometry
 - Handle JT file loading and cleanup
+- Ensure temporary documents are empty before loading JT files in Step 2
 
 **Methods:**
 - `load_jt_geometry(jt_path)` - Load JT file into temporary document

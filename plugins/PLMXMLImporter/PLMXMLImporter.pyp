@@ -1049,8 +1049,17 @@ class Cinema4DImporter:
             self.total_files_processed += 1
             return
         
-        # Load the JT file temporarily
+        # Create and clear a temporary document before loading the JT file
         temp_doc = c4d.documents.BaseDocument()
+        
+        # Ensure the temporary document is completely empty before loading
+        # Remove any default objects or settings
+        temp_obj = temp_doc.GetFirstObject()
+        while temp_obj:
+            next_obj = temp_obj.GetNext()
+            temp_obj.Remove()
+            temp_obj = next_obj
+        
         load_success = False
         
         try:
@@ -1169,82 +1178,14 @@ class Cinema4DImporter:
     def _export_redshift_proxy_fallback(self, proxy_doc, proxy_path, proxy_obj_clone):
         """Fallback method for Redshift proxy export when Python API is not available"""
         try:
-            # In Cinema 4D 2025, we need to save Redshift proxies without user interaction
-            # The command 1038650 prompts user for file location, so we'll use SaveDocument instead
+            # Use only the known working format ID 1038650 for Redshift proxy export
+            format_id = 1038650  # This format ID was confirmed to work based on log analysis
             
-            # First, check if there's a specific RS format for SaveDocument in Cinema 4D 2025
-            rs_format_id = getattr(c4d, 'FORMAT_RS', None)
-            self.logger.log(f"🔍 FORMAT_RS available: {rs_format_id}")
-            
-            # Also check for other available Redshift format IDs
-            redshift_format_ids = {}
-            for attr_name in dir(c4d):
-                if 'REDSHIFT' in attr_name.upper() or 'RS' in attr_name.upper():
-                    try:
-                        attr_value = getattr(c4d, attr_name)
-                        if isinstance(attr_value, int) and attr_value > 1000000:  # Likely a format ID
-                            redshift_format_ids[attr_name] = attr_value
-                    except:
-                        pass
-            
-            if redshift_format_ids:
-                self.logger.log(f"🔍 Available Redshift-related format IDs: {redshift_format_ids}")
+            self.logger.log(f"⏳ Using known working Redshift format: {format_id}")
+            if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
+                self.logger.log(f"✓ Redshift proxy exported to: {proxy_path} (format: {format_id})")
             else:
-                self.logger.log("🔍 No Redshift-related format IDs found in c4d module")
-            
-            if rs_format_id:
-                self.logger.log(f"⏳ Attempting direct RS format save: {rs_format_id}")
-                # Try to save directly as RS format if it's available
-                if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, rs_format_id):
-                    self.logger.log(f"✓ Redshift proxy exported to: {proxy_path}")
-                else:
-                    self.logger.log(f"⚠ Direct RS format save failed for {proxy_path}, trying .c4d fallback", "WARNING")
-                    # Fallback: save as .c4d if the RS format save fails
-                    proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
-                    if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
-                        self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
-                        self.logger.log(f"ℹ For Redshift use: Convert {os.path.basename(proxy_c4d_path)} to {os.path.basename(proxy_path)} manually or use Redshift proxy conversion")
-                    else:
-                        self.logger.log(f"✗ Failed to save proxy file", "ERROR")
-            else:
-                # No direct RS format available in this Cinema 4D version
-                # Check if there are other Redshift-specific format IDs we can use
-                # Try common Redshift format IDs that might be available
-                redshift_formats = [
-                    getattr(c4d, 'FORMAT_REDSHIFT_PROXY', 0),
-                    getattr(c4d, 'FORMAT_REDSHIFT_RS', 0),
-                    getattr(c4d, 'FORMAT_RS', 0),
-                    1036224,  # Common Redshift proxy format ID
-                    1038650   # Redshift RS Proxy command ID (sometimes used as format)
-                ]
-                
-                saved_successfully = False
-                for i, format_id in enumerate(redshift_formats):
-                    if format_id and format_id != 0:
-                        self.logger.log(f"⏳ Trying Redshift format {i+1}/{len(redshift_formats)}: {format_id}")
-                        if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
-                            self.logger.log(f"✓ Redshift proxy exported to: {proxy_path} (format: {format_id})")
-                            saved_successfully = True
-                            break
-                        else:
-                            self.logger.log(f"⚠ Redshift format {format_id} failed")
-                
-                if not saved_successfully:
-                    # Try one more approach - save as .c4d to the intended .rs location
-                    # Sometimes Redshift can work with .c4d files that are renamed to .rs
-                    self.logger.log(f"ℹ Redshift format not available, trying direct .rs save as .c4d format", "INFO")
-                    if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
-                        self.logger.log(f"✓ Object saved with .rs extension using .c4d format: {proxy_path}")
-                        self.logger.log(f"ℹ This .rs file contains .c4d data that Redshift can reference")
-                    else:
-                        # Final fallback: save as .c4d with clear naming
-                        proxy_c4d_path = os.path.splitext(proxy_path)[0] + ".c4d"
-                        self.logger.log(f"ℹ Trying final fallback to .c4d: {proxy_c4d_path}")
-                        if c4d.documents.SaveDocument(proxy_doc, proxy_c4d_path, c4d.SAVEDOCUMENTFLAGS_0, c4d.FORMAT_C4DEXPORT):
-                            self.logger.log(f"✓ Object saved as .c4d: {proxy_c4d_path}")
-                            self.logger.log(f"ℹ For Redshift proxy: Load {os.path.basename(proxy_c4d_path)} in Cinema 4D and use Redshift's proxy creation tools or rename to .rs")
-                        else:
-                            self.logger.log(f"✗ Failed to save proxy file", "ERROR")
+                self.logger.log(f"✗ Redshift proxy export failed with format {format_id}", "ERROR")
         except Exception as e:
             self.logger.log(f"✗ Fallback Redshift proxy export failed: {str(e)}", "ERROR")
         
@@ -1744,11 +1685,22 @@ class PLMXMLDialog(gui.GeDialog):
             self.plmxml_path = os.path.join(self.working_directory, plmxml_files[0])
             self.logger.log(f"✅ PLMXML file selected: {self.plmxml_path}", "INFO")
             
-            # Close the dialog immediately before starting the import process
+            # Close the dialog completely before starting the potentially long-running import process
+            # For modal dialogs, we need to make sure they are properly closed and return False to let C4D handle the closing
             self.Close()
             
-            # Run import process
-            self._run_import_process()
+            # Use a small delay to ensure the dialog is completely closed before starting the import
+            # This ensures the modal dialog is properly dismissed before the long-running operation starts
+            import threading
+            def run_import_delayed():
+                import time
+                time.sleep(0.1)  # Small delay to ensure UI is fully updated
+                self._run_import_process()
+            
+            # Run the import process in a separate thread to avoid blocking the UI
+            thread = threading.Thread(target=run_import_delayed)
+            thread.start()
+            
             return True
         
         elif id == c4d.DLG_CANCEL:
