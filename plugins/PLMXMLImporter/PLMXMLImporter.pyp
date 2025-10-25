@@ -480,7 +480,7 @@ class Cinema4DMaterialManager:
             self.logger.log("❌ Redshift Mredshift constant not available", "ERROR")
             return None
             
-        # Create the Redshift material
+        # Create the material
         mat = c4d.BaseMaterial(c4d.Mredshift)
         if not mat:
             self.logger.log("ERROR: Could not create Redshift material", "ERROR")
@@ -489,13 +489,9 @@ class Cinema4DMaterialManager:
         mat.SetName(name)
         
         # Get the Redshift material node graph
-        try:
-            rsMat = redshift.GetRSMaterialNodeGraph(mat)
-            if not rsMat:
-                self.logger.log("ERROR: Could not get Redshift material node graph", "ERROR")
-                return None
-        except Exception as e:
-            self.logger.log(f"ERROR: Could not access Redshift node graph: {str(e)}", "ERROR")
+        rsMat = redshift.GetRSMaterialNodeGraph(mat)
+        if not rsMat:
+            self.logger.log("ERROR: Could not get Redshift material node graph", "ERROR")
             return None
         
         # Get the root node (output)
@@ -516,30 +512,26 @@ class Cinema4DMaterialManager:
         openpbrNode.GetOutPort(0).Connect(rootNode.GetInPort(0))
         
         # Apply the inferred properties to the OpenPBR node
-        try:
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR] = props.get('base_color', c4d.Vector(0.7, 0.7, 0.7))
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_WEIGHT] = 1.0
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS] = props.get('metalness', 0.0)
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_WEIGHT] = 1.0
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS] = props.get('roughness', 0.5)
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_IOR] = props.get('ior', 1.5)
-            
-            # Handle transparency/transmission
-            transmission_weight = props.get('transmission_weight', 0.0)
-            if transmission_weight > 0 or props.get('transparency', 0.0) > 0:
-                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_WEIGHT] = transmission_weight or props.get('transparency', 0.0)
-                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_COLOR] = props.get('transmission_color', c4d.Vector(1, 1, 1))
-                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_DEPTH] = props.get('transmission_depth', 0.0)
-            
-            # Handle subsurface scattering
-            subsurface_weight = props.get('subsurface_weight', 0.0)
-            if subsurface_weight > 0:
-                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_WEIGHT] = subsurface_weight
-                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_COLOR] = props.get('subsurface_color', props.get('base_color', c4d.Vector(0.5, 0.5, 0.5)))
-                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_RADIUS] = props.get('subsurface_radius', 1.0)
-        except Exception as e:
-            self.logger.log(f"ERROR: Could not set OpenPBR parameters: {str(e)}", "ERROR")
-            return None
+        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR] = props.get('base_color', c4d.Vector(0.7, 0.7, 0.7))
+        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_WEIGHT] = 1.0
+        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS] = props.get('metalness', 0.0)
+        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_WEIGHT] = 1.0
+        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS] = props.get('roughness', 0.5)
+        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_IOR] = props.get('ior', 1.5)
+        
+        # Handle transparency/transmission
+        transmission_weight = props.get('transmission_weight', 0.0)
+        if transmission_weight > 0 or props.get('transparency', 0.0) > 0:
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_WEIGHT] = transmission_weight or props.get('transparency', 0.0)
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_COLOR] = props.get('transmission_color', c4d.Vector(1, 1, 1))
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_DEPTH] = props.get('transmission_depth', 0.0)
+        
+        # Handle subsurface scattering
+        subsurface_weight = props.get('subsurface_weight', 0.0)
+        if subsurface_weight > 0:
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_WEIGHT] = subsurface_weight
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_COLOR] = props.get('subsurface_color', props.get('base_color', c4d.Vector(0.5, 0.5, 0.5)))
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_RADIUS] = props.get('subsurface_radius', 1.0)
         
         # Insert material into document
         doc.InsertMaterial(mat)
