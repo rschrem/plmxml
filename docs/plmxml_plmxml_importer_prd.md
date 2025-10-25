@@ -3,7 +3,7 @@
 ## 1. Executive Summary
 
 **Product Name:** PLMXML Assembly Importer Plugin for Cinema 4D 2025
-**Version:** 3.9
+**Version:** 3.10
 **Project ID:** 1054321
 **Project Owner:** [Your Name]
 **Date:** [Current Date]
@@ -255,6 +255,7 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Better Material Creation**: Robust material creation with proper reflection layer setup and parameter configuration
 - **Intelligent Material Grouping**: Advanced material deduplication with lenient tolerance matching to reduce material proliferation
 - **Improved Material Properties**: More accurate base colors, roughness values, and other PBR properties based on material type
+- **Material Reuse**: Check for existing materials with the same name in the Cinema 4D document and reuse them instead of creating duplicates
 
 ### 8.10 Version Information
 - **Current Version**: 3.1 (updated from initial 3.0)
@@ -266,4 +267,5 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Version 3.6 Updates**: Implemented global working directory variable for simplified file operations; all files (PLMXML, JT, RS proxies, logs) now use single directory approach eliminating complex path arithmetic
 - **Version 3.7 Updates**: Enhanced dialog closure using threading to ensure proper closure before import process starts; simplified Redshift proxy export to use only working format ID 1038650; ensure temporary documents are empty before loading JT files in Step 2 to prevent conflicts
 - **Version 3.8 Updates**: Step 2 no longer builds assembly tree - focuses solely on creating Redshift proxy files; removes all temporary document usage in Step 2, using active document instead; implements material replacement using active document materials
-- **Version 3.9 Updates**: Improved material property inference algorithms with better German/English keyword matching; enhanced material creation with proper PBR workflow setup; better material grouping and deduplication with lenient tolerance matching; updated Cinema 4D standard material creation with GGX distribution and proper fresnel modes
+- **Version 3.9 Updates**: Improved material property inference algorithms with better German/English keyword matching; enhanced material creation with proper PBR workflow setup; better material grouping and deduplication with lenient tolerance matching; updated Cinema 4D standard material creation with GGX distribution and proper fresnel modes; added material reuse functionality to check for existing materials with same name in document
+- **Version 3.10 Updates**: Enhanced Step 1 material extraction to check for existing materials with same name in Cinema 4D document and reuse them instead of creating duplicates; improved material deduplication to reduce material proliferation in complex assemblies

@@ -1,5 +1,5 @@
 # Product Brief
-**Version:** 3.9
+**Version:** 3.10
 **Git Commit:** $Format:%H$
 
 Complete Specification for PLMXML Assembly Importer Plugin for Cinema 4D 2025
@@ -39,6 +39,7 @@ Material System
 * Support for user-defined material properties with fallback defaults
 * Enhanced German/English keyword matching for better material recognition
 * Advanced material property calculation with proper GGX distribution and fresnel modes
+* Reuse existing materials with same name in Cinema 4D document to avoid duplication
 
 Geometry Handling
 * Load JT files using Cinema 4D's native JT import functionality

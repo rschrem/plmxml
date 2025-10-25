@@ -1,5 +1,5 @@
 # PLMXML Assembly Importer Plugin - Technical Architecture Document
-**Version:** 3.9
+**Version:** 3.10
 **Git Commit:** $Format:%H$
 
 ## 1. System Overview
@@ -317,8 +317,7 @@ Scene Structure:
 - Enhanced transparency handling for glass materials
 - Proper material parameter setup with robust error handling
 
-### 10.3 Advanced Material Deduplication
-- Intelligent material grouping by base type
-- Lenient property comparison with configurable tolerances
-- Better similarity matching for similar materials
-- Reduced material duplication in complex assemblies
+### 10.4 Material Reuse Enhancement
+- Check for existing materials with same name in Cinema 4D document before creating new ones
+- Reuse existing materials to avoid duplication and maintain consistency
+- Improve workflow efficiency by leveraging existing document materials
