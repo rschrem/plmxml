@@ -1,5 +1,5 @@
 # Product Brief
-**Version:** 3.8
+**Version:** 3.9
 **Git Commit:** $Format:%H$
 
 Complete Specification for PLMXML Assembly Importer Plugin for Cinema 4D 2025
@@ -31,12 +31,14 @@ Core Import Capabilities
 * Extract user data from PLMXML and apply to Cinema 4D objects
 
 Material System
-* Infer PBR material properties from keywords in material data
-* Support Metal, Plastic, Rubber, Wood, Glass, and Sealant material types
-* Create PBR-compatible materials with proper base color, metalness, roughness
-* Implement material deduplication with tolerance-based matching
+* Infer PBR material properties from keywords in material data using enhanced algorithms
+* Support Metal, Plastic, Rubber, Wood, Glass, and Sealant material types with improved accuracy
+* Create PBR-compatible materials with proper base color, metalness, roughness using enhanced PBR workflow setup
+* Implement material deduplication with tolerance-based matching and intelligent grouping
 * Apply materials to geometry objects, not null containers
 * Support for user-defined material properties with fallback defaults
+* Enhanced German/English keyword matching for better material recognition
+* Advanced material property calculation with proper GGX distribution and fresnel modes
 
 Geometry Handling
 * Load JT files using Cinema 4D's native JT import functionality
@@ -56,10 +58,13 @@ Import Modes
 
 2. Step 2: Create Redshift Proxies
    * Parse PLMXML and load each JT file into the active document (no temporary documents)
-   * Replace loaded materials with closest fitting material in open Cinema 4D file
+   * Replace loaded materials with closest fitting material in open Cinema 4D file using enhanced material inference
    * Export loaded geometry as Redshift proxy (.rs file) using active document
    * Focus only on creating proxy files, no assembly tree building
    * Progress tracking with detailed statistics
+   * Enhanced material property inference with better German/English keyword matching
+   * Improved PBR workflow setup with proper GGX distribution and fresnel modes
+   * Advanced material grouping and deduplication to reduce material proliferation
 
 3. Step 3: Build Assembly Tree Only
    * Auto-detect PLMXML file from working directory (initialized to C4D document directory)

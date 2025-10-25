@@ -1,5 +1,5 @@
 # PLMXML Assembly Importer Plugin - Technical Architecture Document
-**Version:** 3.8
+**Version:** 3.9
 **Git Commit:** $Format:%H$
 
 ## 1. System Overview
@@ -302,3 +302,23 @@ Scene Structure:
 - Sanitize file paths to prevent directory traversal
 - Implement safe XML parsing to prevent XXE attacks
 - Validate JT file content before loading
+
+## 10. Material Handling Improvements
+### 10.1 Enhanced Material Property Inference
+- Improved keyword matching for both German and English material terms
+- Better base color calculation with more accurate PBR values
+- Enhanced material property differentiation for metals, plastics, rubbers, woods, glasses, and sealants
+- Advanced material grouping with lenient tolerance matching
+
+### 10.2 Improved Material Creation Workflow
+- Proper PBR workflow setup with GGX distribution
+- Correct fresnel mode handling (conductor vs. dielectric)
+- Better reflection layer configuration for metallic and dielectric materials
+- Enhanced transparency handling for glass materials
+- Proper material parameter setup with robust error handling
+
+### 10.3 Advanced Material Deduplication
+- Intelligent material grouping by base type
+- Lenient property comparison with configurable tolerances
+- Better similarity matching for similar materials
+- Reduced material duplication in complex assemblies

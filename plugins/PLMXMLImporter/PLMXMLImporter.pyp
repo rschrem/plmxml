@@ -70,62 +70,53 @@ class MaterialPropertyInference:
     
     @staticmethod
     def infer_material_properties(material_data, logger=None):
-        """Infer material properties from material data dictionary"""
+        """Infer material properties from material data dictionary - using improved algorithm"""
         # Extract material properties from dcx:TableAttribute columns
-        mat_group = material_data.get('mat_group', '').lower()
-        mat_standard = material_data.get('mat_standard', '').lower()
-        mat_number = material_data.get('mat_number', '').lower()
-        mat_term = material_data.get('mat_term', '').lower()
-        treatment = material_data.get('treatment', '').lower()
-        body_name = material_data.get('body_name', '').lower()
+        mat_group = material_data.get('mat_group', '')
+        mat_standard = material_data.get('mat_standard', '')
+        mat_number = material_data.get('mat_number', '')
+        mat_term = material_data.get('mat_term', '')
+        treatment = material_data.get('treatment', '')
+        body_name = material_data.get('body_name', '')
         
-        # Combine all material properties for keyword matching
+        # Use the improved inference algorithm from the example
+        props = MaterialPropertyInference.infer_properties(
+            mat_group, mat_standard, mat_number, mat_term, treatment
+        )
+        
+        # Track unknown keywords as before
         full_material_desc = f"{mat_group} {mat_standard} {mat_number} {mat_term} {treatment} {body_name}".lower()
+        MaterialPropertyInference._track_unknown_keywords(full_material_desc, [], logger)
         
-        # Check for metal materials
-        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.METAL_KEYWORDS):
-            # Track unknown keywords
-            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.METAL_KEYWORDS, logger)
-            return MaterialPropertyInference._create_metal_properties(mat_term, mat_group)
+        return props
+    
+    @staticmethod
+    def infer_properties(mat_group, mat_standard, mat_number, mat_term, treatment=''):
+        """Infer PBR properties from material description - improved algorithm"""
+        text = f"{mat_group} {mat_standard} {mat_number} {mat_term} {treatment}".lower()
         
-        # Check for plastic materials
-        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.PLASTIC_KEYWORDS):
-            # Track unknown keywords
-            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.PLASTIC_KEYWORDS, logger)
-            return MaterialPropertyInference._create_plastic_properties(mat_term)
+        props = {
+            'base_color': c4d.Vector(0.7, 0.7, 0.7),
+            'metalness': 0.0,
+            'roughness': 0.5,
+            'ior': 1.5,
+            'transparency': 0.0  # Added for compatibility
+        }
         
-        # Check for rubber/elastomer materials
-        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.RUBBER_KEYWORDS):
-            # Track unknown keywords
-            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.RUBBER_KEYWORDS, logger)
-            return MaterialPropertyInference._create_rubber_properties()
+        if any(keyword in text for keyword in MaterialPropertyInference.METAL_KEYWORDS):
+            props.update(MaterialPropertyInference._metal_properties(text, mat_term))
+        elif any(keyword in text for keyword in MaterialPropertyInference.PLASTIC_KEYWORDS):
+            props.update(MaterialPropertyInference._plastic_properties(text, mat_term))
+        elif any(keyword in text for keyword in MaterialPropertyInference.RUBBER_KEYWORDS):
+            props.update(MaterialPropertyInference._rubber_properties(text))
+        elif any(keyword in text for keyword in MaterialPropertyInference.WOOD_KEYWORDS):
+            props.update(MaterialPropertyInference._wood_properties(text))
+        elif any(keyword in text for keyword in MaterialPropertyInference.GLASS_KEYWORDS):
+            props.update(MaterialPropertyInference._glass_properties(text))
+        elif any(keyword in text for keyword in MaterialPropertyInference.SEALANT_KEYWORDS):
+            props.update(MaterialPropertyInference._sealant_properties(text))
         
-        # Check for wood materials
-        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.WOOD_KEYWORDS):
-            # Track unknown keywords
-            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.WOOD_KEYWORDS, logger)
-            return MaterialPropertyInference._create_wood_properties(mat_term)
-        
-        # Check for glass materials
-        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.GLASS_KEYWORDS):
-            # Track unknown keywords
-            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.GLASS_KEYWORDS, logger)
-            return MaterialPropertyInference._create_glass_properties()
-        
-        # Check for sealant materials
-        if any(keyword in full_material_desc for keyword in MaterialPropertyInference.SEALANT_KEYWORDS):
-            # Track unknown keywords
-            MaterialPropertyInference._track_unknown_keywords(full_material_desc, MaterialPropertyInference.SEALANT_KEYWORDS, logger)
-            return MaterialPropertyInference._create_sealant_properties()
-        
-        # Track unknown keywords even for default material
-        MaterialPropertyInference._track_unknown_keywords(full_material_desc, 
-            MaterialPropertyInference.METAL_KEYWORDS + MaterialPropertyInference.PLASTIC_KEYWORDS + 
-            MaterialPropertyInference.RUBBER_KEYWORDS + MaterialPropertyInference.WOOD_KEYWORDS + 
-            MaterialPropertyInference.GLASS_KEYWORDS + MaterialPropertyInference.SEALANT_KEYWORDS, logger)
-        
-        # Default material
-        return MaterialPropertyInference._create_default_properties()
+        return props
     
     @staticmethod
     def _track_unknown_keywords(full_material_desc, known_keywords, logger):
@@ -153,119 +144,78 @@ class MaterialPropertyInference:
                         logger.log(f"🔍 New material keyword detected: '{word}'", "INFO")
     
     @staticmethod
-    def _create_metal_properties(mat_term, mat_group):
-        """Create properties for metal materials"""
-        # Default metal properties
-        props = {
-            'base_color': c4d.Vector(0.72, 0.72, 0.75),  # Steel color as default
-            'metalness': 1.0,
-            'roughness': 0.15,  # Polished
-            'ior': 1.0,
-            'transparency': 0.0
-        }
-        
-        # Specific metal colors based on term
-        metal_colors = {
-            'aluminum': c4d.Vector(0.87, 0.88, 0.89),
-            'copper': c4d.Vector(0.95, 0.64, 0.54),
-            'gold': c4d.Vector(1.0, 0.85, 0.57)
-        }
-        
-        if mat_term and mat_term.lower() in metal_colors:
-            props['base_color'] = metal_colors[mat_term.lower()]
-        elif mat_group and mat_group.lower() in metal_colors:
-            props['base_color'] = metal_colors[mat_group.lower()]
+    def _metal_properties(text, mat_term):
+        if 'stahl' in text or 'steel' in text:
+            color = c4d.Vector(0.72, 0.72, 0.75)
+        elif 'alumin' in text:
+            color = c4d.Vector(0.87, 0.88, 0.89)
+        elif 'kupfer' in text or 'copper' in text:
+            color = c4d.Vector(0.95, 0.64, 0.54)
+        elif 'gold' in text:
+            color = c4d.Vector(1.0, 0.85, 0.57)
         else:
-            # Distinguish between different steel grades by varying the color slightly based on grade number
-            # Extract numeric grade from material number if it exists
-            import re
-            grade_number = None
-            
-            # Check mat_term and mat_group for grade numbers (like "1.4016", "-1.0338", etc.)
-            if mat_term:
-                grade_match = re.search(r'([0-9]+\.?[0-9]*)', mat_term.replace('-', ''))
-                if grade_match:
-                    try:
-                        grade_number = float(grade_match.group(1))
-                    except ValueError:
-                        pass
-            
-            if not grade_number and mat_group:
-                grade_match = re.search(r'([0-9]+\.?[0-9]*)', mat_group.replace('-', ''))
-                if grade_match:
-                    try:
-                        grade_number = float(grade_match.group(1))
-                    except ValueError:
-                        pass
-            
-            # If we have a grade number, adjust the color slightly to distinguish different grades
-            if grade_number is not None:
-                # Use the grade number to create a slight color variation
-                # This is a simple algorithm to create variation in the steel color
-                variation_factor = (grade_number % 30) * 0.01  # Create subtle variation based on grade
-                base_r, base_g, base_b = 0.72, 0.72, 0.75
-                props['base_color'] = c4d.Vector(
-                    min(1.0, max(0.0, base_r + variation_factor * 0.1)),
-                    min(1.0, max(0.0, base_g + variation_factor * 0.05)),
-                    min(1.0, max(0.0, base_b + variation_factor * 0.15))
-                )
+            color = c4d.Vector(0.7, 0.7, 0.75)
         
-        return props
-    
-    @staticmethod
-    def _create_plastic_properties(mat_term):
-        """Create properties for plastic materials"""
-        props = {
-            'base_color': c4d.Vector(0.25, 0.25, 0.30),  # Default dark plastic
-            'metalness': 0.0,
-            'roughness': 0.3,  # Glossy
-            'ior': 1.49,
-            'transparency': 0.0
+        roughness = 0.15 if 'poliert' in text or 'polished' in text else 0.3
+        
+        return {
+            'base_color': color,
+            'metalness': 1.0,
+            'roughness': roughness,
+            'ior': 2.5,
+            'transparency': 0.0  # Added for compatibility
         }
-        
-        # Color variations based on term
-        if 'black' in mat_term.lower():
-            props['base_color'] = c4d.Vector(0.08, 0.08, 0.08)
-        elif 'white' in mat_term.lower():
-            props['base_color'] = c4d.Vector(0.95, 0.95, 0.95)
-        elif 'gray' in mat_term.lower() or 'grey' in mat_term.lower():
-            props['base_color'] = c4d.Vector(0.5, 0.5, 0.5)
-        
-        return props
     
     @staticmethod
-    def _create_rubber_properties():
-        """Create properties for rubber/elastomer materials"""
+    def _plastic_properties(text, mat_term):
+        color = c4d.Vector(0.25, 0.25, 0.30)
+        
+        if 'schwarz' in text or 'black' in text:
+            color = c4d.Vector(0.08, 0.08, 0.08)
+        elif 'weiss' in text or 'white' in text:
+            color = c4d.Vector(0.95, 0.95, 0.95)
+        elif 'grau' in text or 'gray' in text:
+            color = c4d.Vector(0.5, 0.5, 0.5)
+        
+        roughness = 0.3 if 'glanz' in text or 'gloss' in text else 0.5
+        
+        return {
+            'base_color': color,
+            'metalness': 0.0,
+            'roughness': roughness,
+            'ior': 1.49,
+            'transparency': 0.0  # Added for compatibility
+        }
+    
+    @staticmethod
+    def _rubber_properties(text):
         return {
             'base_color': c4d.Vector(0.10, 0.10, 0.10),
-            'metalness': 0.0,  # Should definitely be 0.0 for rubber
-            'roughness': 0.9,  # High roughness for matte rubber appearance
+            'metalness': 0.0,
+            'roughness': 0.9,
             'ior': 1.52,
             'transparency': 0.0
         }
     
     @staticmethod
-    def _create_wood_properties(mat_term):
-        """Create properties for wood materials"""
-        props = {
-            'base_color': c4d.Vector(0.55, 0.35, 0.22),  # Default wood
+    def _wood_properties(text):
+        if 'eiche' in text or 'oak' in text:
+            color = c4d.Vector(0.65, 0.50, 0.35)
+        elif 'buche' in text or 'beech' in text:
+            color = c4d.Vector(0.75, 0.60, 0.45)
+        else:
+            color = c4d.Vector(0.55, 0.35, 0.22)
+        
+        return {
+            'base_color': color,
             'metalness': 0.0,
             'roughness': 0.75,
             'ior': 1.53,
             'transparency': 0.0
         }
-        
-        # Specific wood types
-        if 'eiche' in mat_term.lower() or 'oak' in mat_term.lower():
-            props['base_color'] = c4d.Vector(0.65, 0.50, 0.35)
-        elif 'buche' in mat_term.lower() or 'beech' in mat_term.lower():
-            props['base_color'] = c4d.Vector(0.75, 0.60, 0.45)
-        
-        return props
     
     @staticmethod
-    def _create_glass_properties():
-        """Create properties for glass materials"""
+    def _glass_properties(text):
         return {
             'base_color': c4d.Vector(0.95, 0.95, 0.95),
             'metalness': 0.0,
@@ -275,8 +225,7 @@ class MaterialPropertyInference:
         }
     
     @staticmethod
-    def _create_sealant_properties():
-        """Create properties for sealant materials"""
+    def _sealant_properties(text):
         return {
             'base_color': c4d.Vector(0.15, 0.15, 0.15),
             'metalness': 0.0,
@@ -286,13 +235,12 @@ class MaterialPropertyInference:
         }
     
     @staticmethod
-    def _create_default_properties():
-        """Create default material properties"""
+    def _default_properties(text):
         return {
-            'base_color': c4d.Vector(0.5, 0.5, 0.5),
+            'base_color': c4d.Vector(0.7, 0.7, 0.7),  # Similar to the example
             'metalness': 0.0,
-            'roughness': 0.4,
-            'ior': 1.4,
+            'roughness': 0.5,
+            'ior': 1.5,
             'transparency': 0.0
         }
 
@@ -306,7 +254,7 @@ class Cinema4DMaterialManager:
         self.material_properties_cache = {}
     
     def create_material(self, material_data, doc):
-        """Create a Cinema 4D material based on material data"""
+        """Create a Cinema 4D material based on material data - using improved algorithm"""
         # Create a unique material name based on material properties
         mat_name = self._generate_material_name(material_data)
         
@@ -322,75 +270,25 @@ class Cinema4DMaterialManager:
                 self.material_properties_cache[mat_name] = props
             return existing_material_in_doc
         
-        # Check if we already have a similar material in our cache
+        # Check if we already have a similar material in our cache using improved algorithm
         existing_material = self.find_existing_material(material_data, doc)
         if existing_material:
             self.logger.log(f"♻ Reusing cached material: {existing_material.GetName()}")
             return existing_material
         
-        # Create a new material
-        mat = c4d.BaseMaterial(c4d.Mmaterial)
+        # Get material properties using improved inference algorithm
+        props = MaterialPropertyInference.infer_material_properties(material_data, self.logger)
+        
+        # Create a new material using the improved method - similar to example
+        mat = self._create_standard_material(material_data.get('mat_group', ''), 
+                                           material_data.get('mat_standard', ''),
+                                           material_data.get('mat_number', ''),
+                                           material_data.get('mat_term', ''),
+                                           props)
+        
         if not mat:
             self.logger.log("✗ Failed to create new material", "ERROR")
             return None
-        
-        mat.SetName(mat_name)
-        
-        # Get material properties
-        props = MaterialPropertyInference.infer_material_properties(material_data, self.logger)
-        
-        # Set base color
-        mat[c4d.MATERIAL_COLOR_COLOR] = props['base_color']
-        mat[c4d.MATERIAL_COLOR_BRIGHTNESS] = 1.0
-        
-        # Enable luminance and set to black for realistic lighting
-        mat[c4d.MATERIAL_LUMINANCE_COLOR] = c4d.Vector(0, 0, 0)
-        
-        # Set transparency if needed
-        if props['transparency'] > 0:
-            mat[c4d.MATERIAL_USE_TRANSPARENCY] = True
-            mat[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS] = 1.0 - props['transparency']
-        
-        # Enable reflection
-        mat[c4d.MATERIAL_USE_REFLECTION] = True
-        
-        # Setup reflection using appropriate Cinema 4D API (skip clearing existing layers)
-        try:
-            # Add new reflection layer
-            layer = mat.AddReflectionLayer()
-            if layer:
-                layer_id = layer.GetLayerID()
-                
-                # Set reflection properties based on metalness
-                if props['metalness'] > 0.5:
-                    # Metallic material - use colored reflection
-                    mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = props['base_color']
-                    mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS] = props['roughness']
-                    # Set reflection strength for metals (high reflectivity)
-                    mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION] = 1.0
-                    # For metals, set fresnel to conductor mode if supported
-                    try:
-                        mat[layer_id + c4d.REFLECTION_LAYER_MAIN_FRESNEL_MODE] = 1  # Conductor
-                    except:
-                        pass  # Some versions don't support this parameter
-                else:
-                    # Non-metallic material - keep reflections subtle and colorless
-                    mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = c4d.Vector(0.8, 0.8, 0.8)  # Subtle white reflection
-                    mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS] = props['roughness']
-                    # Set moderate reflection strength for non-metals
-                    mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION] = 0.3  # Lower reflectivity than metals
-                    # For non-metals, use dielectric fresnel (default)
-                    try:
-                        mat[layer_id + c4d.REFLECTION_LAYER_MAIN_FRESNEL_MODE] = 0  # Dielectric
-                    except:
-                        pass  # Some versions don't support this parameter
-                    
-                    # For rubber/elastomer materials with high roughness, reflections should be very subtle
-                    if props['roughness'] > 0.7:
-                        # Reduce reflection strength significantly for very rough materials
-                        mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION] = 0.05  # Very low reflection strength
-        except Exception as e:
-            self.logger.log(f"Reflection layer setup error: {str(e)}", "WARNING")
         
         # Insert material into the document
         doc.InsertMaterial(mat)
@@ -403,7 +301,112 @@ class Cinema4DMaterialManager:
         self.material_cache[mat_name] = mat
         self.material_properties_cache[mat_name] = props
         
-        self.logger.log(f"→ Created material: {mat_name}")
+        self.logger.log(f"→ Created material: {mat.GetName()}")
+        return mat
+    
+    def _create_standard_material(self, mat_group, mat_standard, mat_number, mat_term, props):
+        """Create Cinema 4D standard material with PBR properties - similar to example"""
+        mat = c4d.BaseMaterial(c4d.Mmaterial)
+        
+        if not mat:
+            self.logger.log("ERROR: Could not create Cinema 4D material", "ERROR")
+            return None
+        
+        name_parts = [p for p in [mat_group, mat_term, mat_number] if p]
+        mat_name = "_".join(name_parts) if name_parts else "Material"
+        mat.SetName(mat_name)
+        
+        # Set base color
+        mat[c4d.MATERIAL_COLOR_COLOR] = props['base_color']
+        mat[c4d.MATERIAL_USE_COLOR] = True
+        
+        # Setup reflectance for PBR workflow
+        mat[c4d.MATERIAL_USE_REFLECTION] = True
+        
+        # Remove default specular layers
+        try:
+            reflectance = mat.GetReflectionLayerIndex(0)
+            if reflectance:
+                layer = reflectance.GetDataID()
+                mat.RemoveReflectionLayerID(layer)
+        except:
+            pass
+        
+        # Add GGX (PBR) reflection layer
+        layer = mat.AddReflectionLayer()
+        if layer:
+            layer_id = layer.GetDataID()
+            
+            # Set to GGX (PBR model)
+            try:
+                mat[layer_id + c4d.REFLECTION_LAYER_MAIN_DISTRIBUTION] = c4d.REFLECTION_DISTRIBUTION_GGX
+            except:
+                self.logger.log(f"  ⚠ Could not set GGX distribution for '{mat_name}'", "WARNING")
+            
+            # Set color/reflectivity based on metalness
+            try:
+                if props['metalness'] > 0.5:
+                    # Metallic - use base color as reflection color
+                    mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = props['base_color']
+                    mat[c4d.MATERIAL_COLOR_COLOR] = c4d.Vector(0, 0, 0)  # Black base for metals
+                    
+                    # Set fresnel to conductor (metal)
+                    try:
+                        mat[layer_id + c4d.REFLECTION_LAYER_FRESNEL_MODE] = c4d.REFLECTION_FRESNEL_CONDUCTOR
+                    except:
+                        pass
+                else:
+                    # Dielectric - white reflection
+                    mat[layer_id + c4d.REFLECTION_LAYER_COLOR_COLOR] = c4d.Vector(1, 1, 1)
+                    
+                    # Set fresnel to dielectric
+                    try:
+                        mat[layer_id + c4d.REFLECTION_LAYER_FRESNEL_MODE] = c4d.REFLECTION_FRESNEL_DIELECTRIC
+                    except:
+                        pass
+            except:
+                self.logger.log(f"  ⚠ Could not set reflection color for '{mat_name}'", "WARNING")
+            
+            # Set roughness
+            try:
+                # Try different roughness parameter names
+                roughness_params = [
+                    c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS,
+                ]
+                for param in roughness_params:
+                    try:
+                        mat[layer_id + param] = props['roughness']
+                        break
+                    except:
+                        continue
+            except:
+                self.logger.log(f"  ⚠ Could not set roughness for '{mat_name}'", "WARNING")
+            
+            # Set reflection strength/brightness
+            strength = 1.0 if props['metalness'] > 0.5 else 0.3
+            brightness_params = [
+                'REFLECTION_LAYER_MAIN_VALUE_BRIGHTNESS',
+                'REFLECTION_LAYER_MAIN_SHADER_BRIGHTNESS',
+            ]
+            
+            for param_name in brightness_params:
+                try:
+                    param = getattr(c4d, param_name, None)
+                    if param is not None:
+                        mat[layer_id + param] = strength
+                        break
+                except:
+                    continue
+        
+        # Handle transparency for glass materials
+        if 'transparency' in props and props['transparency'] > 0.1:
+            try:
+                mat[c4d.MATERIAL_USE_TRANSPARENCY] = True
+                mat[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS] = props['transparency']
+            except:
+                self.logger.log(f"  ⚠ Could not set transparency for '{mat_name}'", "WARNING")
+        
+        mat.Update(True, True)
         return mat
     
     def _find_material_in_document(self, mat_name, doc):
@@ -438,67 +441,121 @@ class Cinema4DMaterialManager:
         return props
     
     def find_existing_material(self, material_data, doc):
-        """Find existing similar material using document and cache checking"""
-        # Generate the name for the new material
-        new_mat_name = self._generate_material_name(material_data)
+        """Find existing similar material using improved algorithm"""
+        # Extract material properties for comparison
+        mat_group = material_data.get('mat_group', '')
+        mat_standard = material_data.get('mat_standard', '')
+        mat_number = material_data.get('mat_number', '')
+        mat_term = material_data.get('mat_term', '')
+        treatment = material_data.get('treatment', '')
         
-        # First, check if there's already a material with this exact name in the document
-        existing_in_doc = self._find_material_in_document(new_mat_name, doc)
-        if existing_in_doc:
-            # Cache it and return it
-            self.material_cache[new_mat_name] = existing_in_doc
-            props = self._extract_material_properties(existing_in_doc)
-            if props:
-                self.material_properties_cache[new_mat_name] = props
-            return existing_in_doc
+        # Generate material name
+        name_parts = [p for p in [mat_group, mat_term, mat_number] if p]
+        mat_name = "_".join(name_parts) if name_parts else "Material"
         
-        # Pass 1: Check in our material cache for exact name match
-        if new_mat_name in self.material_cache:
-            return self.material_cache[new_mat_name]
+        # Check cache first (already created in this import session)
+        signature = self._get_material_signature(mat_group, mat_standard, mat_number, mat_term)
+        if signature in self.material_cache:
+            return self.material_cache[signature]
         
-        # Pass 2: Check for similarity in our cache
-        new_props = MaterialPropertyInference.infer_material_properties(material_data, self.logger)
-        new_base_type = new_mat_name.split('_')[0] if '_' in new_mat_name else new_mat_name
-        
-        for mat_name, cached_mat in self.material_cache.items():
-            if mat_name not in self.material_properties_cache:
-                continue
-                
-            # Check if base types match
-            cached_base_type = mat_name.split('_')[0] if '_' in mat_name else mat_name
-            if new_base_type.lower() != cached_base_type.lower():
-                continue
-            
-            # Compare properties with tolerance
-            cached_props = self.material_properties_cache[mat_name]
-            if self._materials_are_similar(new_props, cached_props):
-                return cached_mat
-        
-        # Pass 3: Check for similar materials already in the document
-        doc_mat = doc.GetFirstMaterial()
-        while doc_mat:
-            doc_mat_name = doc_mat.GetName()
-            if doc_mat_name in self.material_properties_cache:
-                # We've already analyzed this material
-                cached_props = self.material_properties_cache[doc_mat_name]
-                if self._materials_are_similar(new_props, cached_props):
-                    # Cache this material for future use
-                    self.material_cache[doc_mat_name] = doc_mat
-                    return doc_mat
-            else:
-                # Check if this document material has a similar name pattern
-                doc_base_type = doc_mat_name.split('_')[0] if '_' in doc_mat_name else doc_mat_name
-                if new_base_type.lower() == doc_base_type.lower():
-                    # Extract properties to compare
-                    doc_props = self._extract_material_properties(doc_mat)
-                    if doc_props and self._materials_are_similar(new_props, doc_props):
-                        # Cache this material for future use
-                        self.material_cache[doc_mat_name] = doc_mat
-                        self.material_properties_cache[doc_mat_name] = doc_props
-                        return doc_mat
-            doc_mat = doc_mat.GetNext()
+        # Check if identical material already exists in document
+        existing_mat = self._find_existing_material_improved(mat_name, mat_group, mat_standard, mat_number, mat_term, treatment)
+        if existing_mat:
+            self.logger.log(f"♻ Reusing existing material: {existing_mat.GetName()}")
+            self.material_cache[signature] = existing_mat
+            return existing_mat
         
         return None
+    
+    def _get_material_signature(self, mat_group, mat_standard, mat_number, mat_term):
+        """Generate a signature for material caching"""
+        sig = f"{mat_group}|{mat_standard}|{mat_number}|{mat_term}".strip()
+        return sig
+    
+    def _find_existing_material_improved(self, mat_name, mat_group, mat_standard, mat_number, mat_term, treatment):
+        """Check if a material with matching name and properties already exists - using improved algorithm"""
+        
+        # Extract material properties for comparison
+        props = MaterialPropertyInference.infer_properties(
+            mat_group, mat_standard, mat_number, mat_term, treatment
+        )
+        
+        # Get the active document
+        doc = c4d.documents.GetActiveDocument()
+        
+        # First pass: Look for exact name match
+        mat = doc.GetFirstMaterial()
+        while mat:
+            if mat.GetType() == c4d.Mmaterial and mat.GetName() == mat_name:
+                if self._compare_material_properties(mat, props):
+                    return mat
+            mat = mat.GetNext()
+        
+        # Second pass: Look for materials with same base type (more lenient)
+        # Extract material base type (first part before underscore)
+        mat_base_type = mat_name.split('_')[0] if '_' in mat_name else mat_name
+        
+        mat = doc.GetFirstMaterial()
+        while mat:
+            if mat.GetType() == c4d.Mmaterial:
+                existing_base_type = mat.GetName().split('_')[0] if '_' in mat.GetName() else mat.GetName()
+                
+                # If base types match (e.g., both "STAHL"), check if properties are similar
+                if existing_base_type == mat_base_type:
+                    if self._compare_material_properties(mat, props):
+                        self.logger.log(f"  → Grouping '{mat_name}' with existing '{mat.GetName()}'")
+                        return mat
+            mat = mat.GetNext()
+        
+        return None
+    
+    def _compare_material_properties(self, mat, props):
+        """Compare existing material properties with target properties - uses lenient tolerance"""
+        
+        # Use lenient tolerance to group very similar materials
+        color_tolerance = 0.1  # Allow 10% difference in color
+        property_tolerance = 0.15  # Allow 15% difference in roughness/properties
+        
+        # Check base color
+        existing_color = mat[c4d.MATERIAL_COLOR_COLOR]
+        target_color = props['base_color']
+        if (abs(existing_color.x - target_color.x) > color_tolerance or
+            abs(existing_color.y - target_color.y) > color_tolerance or
+            abs(existing_color.z - target_color.z) > color_tolerance):
+            return False
+        
+        # Check if reflection is enabled
+        if not mat[c4d.MATERIAL_USE_REFLECTION]:
+            return False
+        
+        # Check reflectance layer
+        layer = mat.GetReflectionLayerIndex(0)
+        if not layer:
+            return False
+        
+        layer_id = layer.GetDataID()
+        
+        # Check roughness with lenient tolerance
+        try:
+            existing_roughness = mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS]
+            if abs(existing_roughness - props['roughness']) > property_tolerance:
+                return False
+        except:
+            pass  # If we can't check roughness, continue
+        
+        # Check metalness (approximated by fresnel mode and color)
+        try:
+            fresnel_mode = mat[layer_id + c4d.REFLECTION_LAYER_FRESNEL_MODE]
+            is_metal = (fresnel_mode == c4d.REFLECTION_FRESNEL_CONDUCTOR)
+            target_is_metal = (props['metalness'] > 0.5)
+            
+            if is_metal != target_is_metal:
+                return False
+        except:
+            pass  # If we can't check fresnel mode, continue
+        
+        # All properties are similar enough!
+        return True
     
     def _materials_are_similar(self, props1, props2, color_tolerance=0.1, property_tolerance=0.15):
         """Check if two material properties are similar within tolerance"""
