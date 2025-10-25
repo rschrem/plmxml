@@ -279,7 +279,12 @@ class Cinema4DMaterialManager:
             cached_mat = self.material_cache[mat_name]
             self.logger.log(f"📦 Found material in cache: {cached_mat.GetName() if cached_mat else 'None'}")
             # Verify the cached material is still valid/alive
-            if cached_mat and (cached_mat.GetType() == c4d.Mmaterial or cached_mat.GetType() == c4d.Mredshift):
+            # Check if material is a standard material or a Redshift material (if Redshift is available)
+            mat_type_check = (cached_mat.GetType() == c4d.Mmaterial)
+            if REDSHIFT_AVAILABLE and hasattr(c4d, 'Mredshift'):
+                mat_type_check = mat_type_check or (cached_mat.GetType() == c4d.Mredshift)
+            
+            if cached_mat and mat_type_check:
                 self.logger.log(f"♻ Reusing cached material: {cached_mat.GetName()}")
                 return cached_mat
             else:
@@ -321,15 +326,27 @@ class Cinema4DMaterialManager:
         if is_step1 and REDSHIFT_AVAILABLE:
             # Create Redshift OpenPBR material for Step 1
             mat = self._create_redshift_openpbr_material(mat_name, props, doc)
-            self.logger.log(f"🎨 Creating Redshift OpenPBR material: {mat_name} (Step 1)")
+            if mat:
+                self.logger.log(f"🎨 Creating Redshift OpenPBR material: {mat_name} (Step 1)")
+            else:
+                # If Redshift material creation failed, fall back to standard material
+                self.logger.log(f"🎨 Redshift material creation failed, falling back to standard material: {mat_name} (Step 1)")
+                mat = self._create_standard_material(material_data.get('mat_group', ''), 
+                                                   material_data.get('mat_standard', ''),
+                                                   material_data.get('mat_number', ''),
+                                                   material_data.get('mat_term', ''),
+                                                   props)
         else:
-            # Create standard Cinema 4D material for other modes
+            # Create standard Cinema 4D material for other modes (or when Redshift not available in Step 1)
             mat = self._create_standard_material(material_data.get('mat_group', ''), 
                                                material_data.get('mat_standard', ''),
                                                material_data.get('mat_number', ''),
                                                material_data.get('mat_term', ''),
                                                props)
-            self.logger.log(f"🎨 Creating standard Cinema 4D material: {mat_name} (Mode: {mode})")
+            if is_step1 and not REDSHIFT_AVAILABLE:
+                self.logger.log(f"🎨 Redshift not available, creating standard Cinema 4D material for Step 1: {mat_name}")
+            else:
+                self.logger.log(f"🎨 Creating standard Cinema 4D material: {mat_name} (Mode: {mode})")
         
         if not mat:
             self.logger.log("✗ Failed to create new material", "ERROR")
@@ -458,10 +475,20 @@ class Cinema4DMaterialManager:
         """
         Create a Redshift OpenPBR material from inferred properties
         """
-        # Check for Redshift availability
+        # Check for Redshift availability and constants
         if not REDSHIFT_AVAILABLE:
             self.logger.log("⚠ Redshift not available, cannot create OpenPBR material", "WARNING")
             return None
+            
+        # Check if Redshift constants exist (sometimes they exist but plugin is not fully available)
+        if not hasattr(c4d, 'Mredshift'):
+            self.logger.log("⚠ Redshift constants not available, using standard material instead", "WARNING")
+            # Fallback to creating a standard material when Redshift isn't available
+            material_data = {'mat_group': name.split('_')[0] if '_' in name else name, 'mat_term': name.split('_')[1] if name.count('_') >= 1 else '', 'mat_number': name.split('_')[2] if name.count('_') >= 2 else ''}
+            return self._create_standard_material(material_data.get('mat_group', ''), 
+                                               material_data.get('mat_term', ''),
+                                               material_data.get('mat_number', ''),
+                                               '', props)
             
         # Create the Redshift material
         mat = c4d.BaseMaterial(c4d.Mredshift)
@@ -589,7 +616,12 @@ class Cinema4DMaterialManager:
             cached_mat = self.material_cache[signature]
             self.logger.log(f"  📦 Found material in cache by signature: {cached_mat.GetName() if cached_mat else 'None'}")
             # Check if the cached material is valid
-            if cached_mat and (cached_mat.GetType() == c4d.Mmaterial or cached_mat.GetType() == c4d.Mredshift):
+            # Check if material is a standard material or a Redshift material (if Redshift is available)
+            mat_type_check = (cached_mat.GetType() == c4d.Mmaterial)
+            if REDSHIFT_AVAILABLE and hasattr(c4d, 'Mredshift'):
+                mat_type_check = mat_type_check or (cached_mat.GetType() == c4d.Mredshift)
+            
+            if cached_mat and mat_type_check:
                 return cached_mat
         
         # Check if identical material already exists in document
@@ -633,11 +665,13 @@ class Cinema4DMaterialManager:
             # Check if material matches type requirements based on mode
             material_type_match = False
             if mode == "material_extraction" and REDSHIFT_AVAILABLE:
-                # In Step 1, look for Redshift materials
-                material_type_match = mat.GetType() == c4d.Mredshift
+                # In Step 1, look for Redshift materials if available
+                material_type_match = (hasattr(c4d, 'Mredshift') and mat.GetType() == c4d.Mredshift)
             else:
-                # For other modes, look for either standard or Redshift materials
-                material_type_match = (mat.GetType() == c4d.Mmaterial or mat.GetType() == c4d.Mredshift)
+                # For other modes, look for either standard or Redshift materials (if available)
+                standard_match = (mat.GetType() == c4d.Mmaterial)
+                redshift_match = (hasattr(c4d, 'Mredshift') and mat.GetType() == c4d.Mredshift)
+                material_type_match = standard_match or redshift_match
             
             if material_type_match and mat.GetName() == mat_name:
                 self.logger.log(f"    ✅ Exact name match found: {mat.GetName()}")
@@ -660,11 +694,13 @@ class Cinema4DMaterialManager:
             # Check if material matches type requirements based on mode
             material_type_match = False
             if mode == "material_extraction" and REDSHIFT_AVAILABLE:
-                # In Step 1, look for Redshift materials
-                material_type_match = mat.GetType() == c4d.Mredshift
+                # In Step 1, look for Redshift materials if available
+                material_type_match = (hasattr(c4d, 'Mredshift') and mat.GetType() == c4d.Mredshift)
             else:
-                # For other modes, look for either standard or Redshift materials
-                material_type_match = (mat.GetType() == c4d.Mmaterial or mat.GetType() == c4d.Mredshift)
+                # For other modes, look for either standard or Redshift materials (if available)
+                standard_match = (mat.GetType() == c4d.Mmaterial)
+                redshift_match = (hasattr(c4d, 'Mredshift') and mat.GetType() == c4d.Mredshift)
+                material_type_match = standard_match or redshift_match
             
             if material_type_match:
                 existing_base_type = mat.GetName().split('_')[0] if '_' in mat.GetName() else mat.GetName()
@@ -692,7 +728,8 @@ class Cinema4DMaterialManager:
         
         mat_type = mat.GetType()
         
-        if mat_type == c4d.Mredshift and REDSHIFT_AVAILABLE:
+        # Handle Redshift material comparison - check if Redshift is available and constants exist
+        if REDSHIFT_AVAILABLE and hasattr(c4d, 'Mredshift') and mat_type == c4d.Mredshift:
             # Handle Redshift material comparison
             try:
                 # Get the Redshift material node graph
@@ -706,15 +743,15 @@ class Cinema4DMaterialManager:
                     return False
                 
                 # Look for the OpenPBR node connected to output
-                # This requires traversing the node graph, simplified approach:
                 # Check if the material has the expected OpenPBR properties
-                if c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR in mat:
+                # Use hasattr to check for Redshift constants before accessing them
+                if hasattr(c4d, 'REDSHIFT_SHADER_OPENPBR_BASE_COLOR') and c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR in mat:
                     existing_color = mat[c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR]
+                elif hasattr(c4d, 'REDSHIFT_MATERIAL_OVERRIDE_COLOR') and c4d.REDSHIFT_MATERIAL_OVERRIDE_COLOR in mat:
+                    existing_color = mat[c4d.REDSHIFT_MATERIAL_OVERRIDE_COLOR]
                 else:
-                    # Check the node graph directly
-                    nodes = []  # We would need to traverse the node graph to find the OpenPBR surface
-                    # For now, we'll use a simpler approach by checking common Redshift material properties
-                    existing_color = mat[c4d.REDSHIFT_MATERIAL_OVERRIDE_COLOR] if c4d.REDSHIFT_MATERIAL_OVERRIDE_COLOR in mat else c4d.Vector(0.5, 0.5, 0.5)
+                    # Default fallback color
+                    existing_color = c4d.Vector(0.5, 0.5, 0.5)
                 
                 target_color = props['base_color']
                 if (abs(existing_color.x - target_color.x) > color_tolerance or
@@ -723,7 +760,7 @@ class Cinema4DMaterialManager:
                     return False
                 
                 # Check metalness
-                if c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS in mat:
+                if hasattr(c4d, 'REDSHIFT_SHADER_OPENPBR_BASE_METALNESS') and c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS in mat:
                     existing_metalness = mat[c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS]
                 else:
                     # Default to 0 if property doesn't exist
@@ -734,7 +771,7 @@ class Cinema4DMaterialManager:
                     return False
                 
                 # Check roughness
-                if c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS in mat:
+                if hasattr(c4d, 'REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS') and c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS in mat:
                     existing_roughness = mat[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS]
                 else:
                     existing_roughness = 0.5  # Default roughness
