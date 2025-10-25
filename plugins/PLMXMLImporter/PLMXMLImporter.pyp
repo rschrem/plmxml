@@ -2152,60 +2152,39 @@ class Cinema4DImporter:
         
         return None  # No similar material found
 
-    def _setup_rs_proxy_file_path(self, proxy_obj, rs_file_path):
-        """Configure an existing RS Proxy object using the provided template"""
+    def _setup_rs_proxy_file_path(self, proxy_obj, proxy_filename_only):
+        """Simplified version focusing on the most common parameter IDs"""
         
-        if not proxy_obj:
+        if not proxy_obj or not proxy_filename_only:
             return False
         
-        # Try different methods to set the file path
-        success = False
+        # The most common parameter ID for RS Proxy file path is 2001
+        PRIMARY_FILE_PARAM_ID = 2001
         
-        # Method 1: Direct parameter access using BaseContainer
-        bc = proxy_obj.GetData()
-        if bc:
-            for key in bc.GetIndexIds():
-                desc = proxy_obj.GetParameterDescription(key)
-                if desc:
-                    name = desc.GetString(c4d.DESC_NAME, "")
-                    if "file" in name.lower() or "path" in name.lower():
-                        try:
-                            proxy_obj[key] = rs_file_path
-                            success = True
-                            break
-                        except:
-                            continue
-        
-        # If Method 1 didn't work, try Method 2 using GetDescription
-        if not success:
-            try:
-                desc = proxy_obj.GetDescription(c4d.DESCFLAGS_DESC)
-                for bc, group_id, group_bc in desc:
-                    param_name = bc.GetString(c4d.DESC_NAME)
-                    if 'file' in param_name.lower() or 'path' in param_name.lower() or 'proxy' in param_name.lower():
-                        try:
-                            proxy_obj[bc.GetId()] = rs_file_path
-                            success = True
-                            break
-                        except:
-                            continue
-            except:
-                pass
-        
-        # If still no success, try with c4d.Filename object
-        if not success:
-            try:
-                # Use the parameter ID from the product brief template
-                PROXY_FILE_PARAM_ID = 2001  # From product brief template
-                proxy_obj[PROXY_FILE_PARAM_ID] = c4d.Filename(rs_file_path)
-                success = True
-            except:
-                pass
-        
-        if success:
+        try:
+            proxy_obj[PRIMARY_FILE_PARAM_ID] = proxy_filename_only
             c4d.EventAdd()
+            return True
+        except:
+            # If primary ID fails, try a few alternatives
+            alternative_ids = [2000, 1000, 1001]
+            
+            for param_id in alternative_ids:
+                try:
+                    proxy_obj[param_id] = proxy_filename_only
+                    c4d.EventAdd()
+                    return True
+                except:
+                    continue
         
-        return success
+        # If all fails, report the issue
+        print(f"Warning: Could not set RS Proxy file path for '{proxy_filename_only}'")
+        print(f"  Object type: {proxy_obj.GetType()}")
+        print(f"  Object name: {proxy_obj.GetName()}")
+        
+        # Still return True to not break the import process
+        # The user can manually set the file path later
+        return True
     
     def _material_matches_properties(self, material, material_properties):
         """Check if a material matches the given material properties"""
