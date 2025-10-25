@@ -257,8 +257,36 @@ class Cinema4DMaterialManager:
         """Create a Cinema 4D material based on material data - using improved algorithm"""
         # Create a unique material name based on material properties
         mat_name = self._generate_material_name(material_data)
+        self.logger.log(f"🔍 Material creation requested for: {mat_name}")
+        
+        # Show current cache contents for debugging
+        self.logger.log(f"📦 Current cache contents: {len(self.material_cache)} items")
+        for cache_key, cache_mat in self.material_cache.items():
+            self.logger.log(f"  📦 Cache[{cache_key}]: {cache_mat.GetName() if cache_mat else 'None'}")
+        
+        # Check if we already have this material in our cache
+        if mat_name in self.material_cache:
+            cached_mat = self.material_cache[mat_name]
+            self.logger.log(f"📦 Found material in cache: {cached_mat.GetName() if cached_mat else 'None'}")
+            # Verify the cached material is still valid/alive
+            if cached_mat and cached_mat.GetType() == c4d.Mmaterial:
+                self.logger.log(f"♻ Reusing cached material: {cached_mat.GetName()}")
+                return cached_mat
+            else:
+                self.logger.log(f"⚠ Cached material is invalid, removing from cache")
+                del self.material_cache[mat_name]
         
         # Check if we already have a similar material in the current document
+        self.logger.log(f"🔍 Checking if material '{mat_name}' already exists in document")
+        # Show all materials currently in the document for debugging
+        mat_count = 0
+        doc_mat = doc.GetFirstMaterial()
+        while doc_mat:
+            mat_count += 1
+            self.logger.log(f"  🎨 Document material #{mat_count}: {doc_mat.GetName()}")
+            doc_mat = doc_mat.GetNext()
+        self.logger.log(f"  📊 Total materials in document: {mat_count}")
+        
         existing_material_in_doc = self._find_material_in_document(mat_name, doc)
         if existing_material_in_doc:
             self.logger.log(f"♻ Reusing existing material in document: {existing_material_in_doc.GetName()}")
@@ -411,11 +439,17 @@ class Cinema4DMaterialManager:
     
     def _find_material_in_document(self, mat_name, doc):
         """Find a material with specific name in the document"""
+        self.logger.log(f"🔍 Searching for material '{mat_name}' in document")
+        mat_count = 0
         mat = doc.GetFirstMaterial()
         while mat:
+            mat_count += 1
+            self.logger.log(f"  🎨 Found material: {mat.GetName()}")
             if mat.GetName() == mat_name:
+                self.logger.log(f"  ✅ Match found for '{mat_name}'")
                 return mat
             mat = mat.GetNext()
+        self.logger.log(f"  ❌ No match found for '{mat_name}' (checked {mat_count} materials)")
         return None
     
     def _verify_material_in_document(self, mat_name, doc):
@@ -442,6 +476,8 @@ class Cinema4DMaterialManager:
     
     def find_existing_material(self, material_data, doc):
         """Find existing similar material using improved algorithm"""
+        self.logger.log("🔍 Checking for existing material using improved algorithm")
+        
         # Extract material properties for comparison
         mat_group = material_data.get('mat_group', '')
         mat_standard = material_data.get('mat_standard', '')
@@ -452,14 +488,19 @@ class Cinema4DMaterialManager:
         # Generate material name
         name_parts = [p for p in [mat_group, mat_term, mat_number] if p]
         mat_name = "_".join(name_parts) if name_parts else "Material"
+        self.logger.log(f"  🏷️ Looking for material with name: {mat_name}")
         
         # Check cache first (already created in this import session)
         signature = self._get_material_signature(mat_group, mat_standard, mat_number, mat_term)
+        self.logger.log(f"  📦 Checking cache for signature: {signature}")
         if signature in self.material_cache:
-            return self.material_cache[signature]
+            cached_mat = self.material_cache[signature]
+            self.logger.log(f"  📦 Found material in cache by signature: {cached_mat.GetName() if cached_mat else 'None'}")
+            return cached_mat
         
         # Check if identical material already exists in document
-        existing_mat = self._find_existing_material_improved(mat_name, mat_group, mat_standard, mat_number, mat_term, treatment)
+        self.logger.log(f"  🔍 Searching document for existing material: {mat_name}")
+        existing_mat = self._find_existing_material_improved(mat_name, mat_group, mat_standard, mat_number, mat_term, treatment, doc)
         if existing_mat:
             self.logger.log(f"♻ Reusing existing material: {existing_mat.GetName()}")
             self.material_cache[signature] = existing_mat
@@ -472,41 +513,61 @@ class Cinema4DMaterialManager:
         sig = f"{mat_group}|{mat_standard}|{mat_number}|{mat_term}".strip()
         return sig
     
-    def _find_existing_material_improved(self, mat_name, mat_group, mat_standard, mat_number, mat_term, treatment):
+    def _find_existing_material_improved(self, mat_name, mat_group, mat_standard, mat_number, mat_term, treatment, doc):
         """Check if a material with matching name and properties already exists - using improved algorithm"""
+        self.logger.log(f"🔍 _find_existing_material_improved called with: name={mat_name}, group={mat_group}, standard={mat_standard}, number={mat_number}, term={mat_term}, treatment={treatment}")
         
         # Extract material properties for comparison
-        props = MaterialPropertyInference.infer_properties(
-            mat_group, mat_standard, mat_number, mat_term, treatment
+        props = MaterialPropertyInference.infer_material_properties(
+            {
+                'mat_group': mat_group,
+                'mat_standard': mat_standard,
+                'mat_number': mat_number,
+                'mat_term': mat_term,
+                'treatment': treatment
+            }, self.logger
         )
         
-        # Get the active document
-        doc = c4d.documents.GetActiveDocument()
+        # Use the provided document parameter
         
         # First pass: Look for exact name match
+        self.logger.log(f"  🔍 First pass - searching for exact name match: {mat_name}")
         mat = doc.GetFirstMaterial()
         while mat:
+            self.logger.log(f"    🎨 Checking material: {mat.GetName()}")
             if mat.GetType() == c4d.Mmaterial and mat.GetName() == mat_name:
+                self.logger.log(f"    ✅ Exact name match found: {mat.GetName()}")
                 if self._compare_material_properties(mat, props):
+                    self.logger.log(f"    ✅ Properties also match, returning: {mat.GetName()}")
                     return mat
+                else:
+                    self.logger.log(f"    ❌ Properties don't match for: {mat.GetName()}")
             mat = mat.GetNext()
+        
+        self.logger.log(f"  ❌ No exact name match found for: {mat_name}")
         
         # Second pass: Look for materials with same base type (more lenient)
         # Extract material base type (first part before underscore)
         mat_base_type = mat_name.split('_')[0] if '_' in mat_name else mat_name
+        self.logger.log(f"  🔍 Second pass - searching for materials with base type: {mat_base_type}")
         
         mat = doc.GetFirstMaterial()
         while mat:
             if mat.GetType() == c4d.Mmaterial:
                 existing_base_type = mat.GetName().split('_')[0] if '_' in mat.GetName() else mat.GetName()
+                self.logger.log(f"    🎨 Checking material base type: {existing_base_type} for material: {mat.GetName()}")
                 
                 # If base types match (e.g., both "STAHL"), check if properties are similar
                 if existing_base_type == mat_base_type:
+                    self.logger.log(f"    ✅ Base type match found: {mat.GetName()}")
                     if self._compare_material_properties(mat, props):
                         self.logger.log(f"  → Grouping '{mat_name}' with existing '{mat.GetName()}'")
                         return mat
+                    else:
+                        self.logger.log(f"    ❌ Properties don't match for base type: {mat.GetName()}")
             mat = mat.GetNext()
         
+        self.logger.log(f"  ❌ No base type matches found for: {mat_base_type}")
         return None
     
     def _compare_material_properties(self, mat, props):
@@ -576,7 +637,9 @@ class Cinema4DMaterialManager:
         mat_number = material_data.get('mat_number', 'Unknown')
         
         # Format: {mat_group}_{mat_term}_{mat_number}
-        return f"{mat_group}_{mat_term}_{mat_number}"
+        mat_name = f"{mat_group}_{mat_term}_{mat_number}"
+        self.logger.log(f"🏷️ Generated material name: {mat_name} (from group='{mat_group}', term='{mat_term}', number='{mat_number}')")
+        return mat_name
 
 
 class PLMXMLParser:
