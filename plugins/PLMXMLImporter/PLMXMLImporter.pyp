@@ -1200,10 +1200,10 @@ class Cinema4DImporter:
     
     def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None, working_directory=None):
         """Build the Cinema 4D scene hierarchy from parsed data"""
-        # For Step 1 (material extraction), check if Redshift is available
-        if mode == "material_extraction" and not REDSHIFT_AVAILABLE:
-            self.logger.log("❌ Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.", "ERROR")
-            c4d.gui.MessageDialog("Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.")
+        # For Step 1 (material extraction), check if Redshift is available and properly configured
+        if mode == "material_extraction" and (not REDSHIFT_AVAILABLE or not hasattr(c4d, 'Mredshift')):
+            self.logger.log("❌ Redshift is not available or not properly configured. Step 1 (Material Extraction) requires Redshift to function.", "ERROR")
+            c4d.gui.MessageDialog("Redshift is not available or not properly configured. Step 1 (Material Extraction) requires Redshift to function.")
             return False  # Return False to indicate failure
         
         # Reset unknown keywords tracking for this import
@@ -1293,11 +1293,17 @@ class Cinema4DImporter:
     
     def _process_all_jt_files_for_material_extraction(self, plmxml_parser, doc):
         """Process all JT files directly for material extraction without building assembly tree - Step 1 only"""
-        # Check if Redshift is available - this is mandatory for Step 1
+        # Check if Redshift is available and properly configured - this is mandatory for Step 1
         if not REDSHIFT_AVAILABLE:
             self.logger.log(f"❌ Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.", "ERROR")
             c4d.gui.MessageDialog("Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.")
             return  # Exit early if Redshift is not available
+        
+        # Also check if Redshift constants exist (Redshift module might be imported but not properly configured) 
+        if not hasattr(c4d, 'Mredshift'):
+            self.logger.log(f"❌ Redshift constants are not available. Step 1 (Material Extraction) requires Redshift to be properly installed and configured.", "ERROR")
+            c4d.gui.MessageDialog("Redshift is not properly installed or configured. Step 1 (Material Extraction) requires Redshift to be properly installed and configured.")
+            return  # Exit early if Redshift constants are not available
         
         # Iterate through all instances and parts to collect all unique JT files
         processed_jt_files = set()  # Keep track of processed files to avoid duplicates
