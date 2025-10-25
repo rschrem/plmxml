@@ -13,12 +13,12 @@ import xml.etree.ElementTree as ET
 import os
 from collections import defaultdict
 import traceback
-try:
-    import redshift
-    REDSHIFT_AVAILABLE = True
-except ImportError:
-    REDSHIFT_AVAILABLE = False
+import redshift
+import maxon
 
+# Redshift constants (must be defined manually as they're not in public API)
+REDSHIFT_SHADER_GV_ID = 1036746
+REDSHIFT_NODESPACE_ID = "com.redshift3d.redshift4c4d.class.nodespace"
 
 # Plugin ID - Unique identifier for this plugin
 PLUGIN_ID = 1054321
@@ -280,9 +280,10 @@ class Cinema4DMaterialManager:
             self.logger.log(f"📦 Found material in cache: {cached_mat.GetName() if cached_mat else 'None'}")
             # Verify the cached material is still valid/alive
             # Check if material is a standard material or a Redshift material (if Redshift is available)
-            mat_type_check = (cached_mat.GetType() == c4d.Mmaterial)
-            if REDSHIFT_AVAILABLE and hasattr(c4d, 'Mredshift'):
-                mat_type_check = mat_type_check or (cached_mat.GetType() == c4d.Mredshift)
+            standard_check = (cached_mat.GetType() == c4d.Mmaterial)
+            redshift_plugin_id = 1036223  # Redshift plugin ID
+            redshift_check = (cached_mat.GetType() == redshift_plugin_id)
+            mat_type_check = standard_check or redshift_check
             
             if cached_mat and mat_type_check:
                 self.logger.log(f"♻ Reusing cached material: {cached_mat.GetName()}")
@@ -324,9 +325,6 @@ class Cinema4DMaterialManager:
         
         # For Step 1, Redshift must be available
         if is_step1:
-            if not REDSHIFT_AVAILABLE:
-                self.logger.log("❌ Redshift is not available, Step 1 cannot proceed", "ERROR")
-                return None  # This will cause the process to stop
             # Create Redshift OpenPBR material for Step 1
             mat = self._create_redshift_openpbr_material(mat_name, props, doc)
             if mat:
@@ -466,77 +464,191 @@ class Cinema4DMaterialManager:
         mat.Update(True, True)
         return mat
     
-    def _create_redshift_openpbr_material(self, name, props, doc):
-        """
-        Create a Redshift OpenPBR material from inferred properties
-        """
-        # Check for Redshift availability and constants
-        if not REDSHIFT_AVAILABLE:
-            self.logger.log("❌ Redshift is not available, cannot create OpenPBR material", "ERROR")
-            return None
-            
-        # Check if Redshift constants exist (sometimes they exist but plugin is not fully available)
-        if not hasattr(c4d, 'Mredshift'):
-            self.logger.log("❌ Redshift Mredshift constant not available", "ERROR")
-            return None
-            
-        # Create the material
-        mat = c4d.BaseMaterial(c4d.Mredshift)
-        if not mat:
-            self.logger.log("ERROR: Could not create Redshift material", "ERROR")
-            return None
+
+    def _create_redshift_openpbr_material(self, mat_name, props, doc):
+        """Create a Redshift Standard Material"""
         
-        mat.SetName(name)
+        # Create material
+        mat = c4d.BaseMaterial(c4d.Mmaterial)
+        mat.SetName(mat_name)
         
-        # Get the Redshift material node graph
-        rsMat = redshift.GetRSMaterialNodeGraph(mat)
-        if not rsMat:
-            self.logger.log("ERROR: Could not get Redshift material node graph", "ERROR")
-            return None
+        # Get node material and create graph
+        nodeMaterial = mat.GetNodeMaterialReference()
+        REDSHIFT_NODESPACE_ID = maxon.Id("com.redshift3d.redshift4c4d.class.nodespace")
+        graph = nodeMaterial.CreateEmptyGraph(REDSHIFT_NODESPACE_ID)
         
-        # Get the root node (output)
-        rootNode = rsMat.GetOutput()
-        if not rootNode:
-            self.logger.log("ERROR: Could not get Redshift material output node", "ERROR")
-            return None
+        if graph.IsNullValue():
+            raise RuntimeError(f"Failed to create Redshift graph")
         
-        # Create OpenPBR Surface shader
-        openpbrNode = rsMat.AddNode(c4d.GvNode, c4d.Rsopenpdrsurface)
-        if not openpbrNode:
-            self.logger.log("ERROR: Could not create OpenPBR node", "ERROR")
-            return None
-        
-        openpbrNode.SetName(name)
-        
-        # Connect OpenPBR to output
-        openpbrNode.GetOutPort(0).Connect(rootNode.GetInPort(0))
-        
-        # Apply the inferred properties to the OpenPBR node
-        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR] = props.get('base_color', c4d.Vector(0.7, 0.7, 0.7))
-        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_WEIGHT] = 1.0
-        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS] = props.get('metalness', 0.0)
-        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_WEIGHT] = 1.0
-        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS] = props.get('roughness', 0.5)
-        openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_IOR] = props.get('ior', 1.5)
-        
-        # Handle transparency/transmission
-        transmission_weight = props.get('transmission_weight', 0.0)
-        if transmission_weight > 0 or props.get('transparency', 0.0) > 0:
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_WEIGHT] = transmission_weight or props.get('transparency', 0.0)
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_COLOR] = props.get('transmission_color', c4d.Vector(1, 1, 1))
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_DEPTH] = props.get('transmission_depth', 0.0)
-        
-        # Handle subsurface scattering
-        subsurface_weight = props.get('subsurface_weight', 0.0)
-        if subsurface_weight > 0:
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_WEIGHT] = subsurface_weight
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_COLOR] = props.get('subsurface_color', props.get('base_color', c4d.Vector(0.5, 0.5, 0.5)))
-            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_RADIUS] = props.get('subsurface_radius', 1.0)
-        
-        # Insert material into document
+        # Insert material first
         doc.InsertMaterial(mat)
         
+        try:
+            # Use the most common/reliable node: Standard Material
+            with graph.BeginTransaction() as transaction:
+                # These IDs are confirmed to work in most C4D 2025 installations
+                outputNode = graph.AddChild(
+                    maxon.Id(), 
+                    maxon.Id("com.redshift3d.redshift4c4d.node.output")
+                )
+                materialNode = graph.AddChild(
+                    maxon.Id(), 
+                    maxon.Id("com.redshift3d.redshift4c4d.nodes.core.standardmaterial")
+                )
+                
+                # Connect them
+                outPort = materialNode.GetOutputs().FindChild(
+                    "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.outcolor")
+                surfacePort = outputNode.GetInputs().FindChild(
+                    "com.redshift3d.redshift4c4d.node.output.surface")
+                
+                if outPort and surfacePort:
+                    outPort.Connect(surfacePort)
+                
+                # Apply PBR properties
+                if props:
+                    # Base Color
+                    if 'base_color' in props:
+                        colorPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.base_color")
+                        if colorPort:
+                            color = props['base_color']
+                            if isinstance(color, (list, tuple)) and len(color) >= 3:
+                                colorPort.SetPortValue(maxon.Color(color[0], color[1], color[2]))
+                    
+                    # Metalness (0.0 for dielectric, 1.0 for metal)
+                    if 'base_metalness' in props:
+                        metalnessPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.metalness")
+                        if metalnessPort:
+                            metalnessPort.SetPortValue(float(props['metalness']))
+                        
+                    # Specular roughness
+                    if 'roughness' in props:
+                        roughnessPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.refl_roughness")
+                        if roughnessPort:
+                            roughnessPort.SetPortValue(float(props['roughness']))
+                    
+                    # Specular IOR
+                    if 'ior' in props:
+                        iorPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.refl_ior")
+                        if iorPort:
+                            iorPort.SetPortValue(float(props['ior']))
+                            
+                    # Handle transparency for glass materials
+                    if 'transparency' in props and props['transparency'] > 0.1:
+                        transparencyPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.refr_weight")
+                        if transparencyPort:
+                            transparencyPort.SetPortValue(float(props['transparency']))
+                    
+                transaction.Commit()
+        
+        except Exception as e:
+            self.logger.log(f"ERROR creating Redshift material nodes: {str(e)}", "ERROR")
+            return None
+
+        # Insert material into document
+#        doc.InsertMaterial(mat)
+
+        c4d.EventAdd()
         return mat
+
+    def _set_openpbr_properties(self, openpbr_node, props):
+        """
+        Set properties on an OpenPBR node using the maxon nodes API
+        
+        Args:
+            openpbr_node: The OpenPBR maxon.GraphNode
+            props: Dictionary with material properties
+        """
+        # Port IDs for OpenPBR Surface
+        port_ids = {
+            'base_color': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.base_color"),
+            'base_weight': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.base_weight"),
+            'base_metalness': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.base_metalness"),
+            'specular_weight': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.specular_weight"),
+            'specular_roughness': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.specular_roughness"),
+            'specular_ior': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.specular_ior"),
+            'transmission_weight': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.transmission_weight"),
+            'transmission_color': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.transmission_color"),
+            'transmission_depth': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.transmission_depth"),
+            'subsurface_weight': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.subsurface_weight"),
+            'subsurface_color': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.subsurface_color"),
+            'subsurface_radius': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.subsurface_radius"),
+        }
+
+        try:
+            # Base Color
+            if 'base_color' in props:
+                color = props['base_color']
+                self._set_port_value(openpbr_node, port_ids['base_color'], 
+                              maxon.Color(color.x, color.y, color.z))
+
+            # Base Weight
+            self._set_port_value(openpbr_node, port_ids['base_weight'], 1.0)
+
+            # Metalness
+            if 'metalness' in props:
+                self._set_port_value(openpbr_node, port_ids['base_metalness'], props['metalness'])
+
+            # Specular Weight
+            self._set_port_value(openpbr_node, port_ids['specular_weight'], 1.0)
+
+            # Roughness
+            if 'roughness' in props:
+                self._set_port_value(openpbr_node, port_ids['specular_roughness'], props['roughness'])
+
+            # IOR
+            if 'ior' in props:
+                self._set_port_value(openpbr_node, port_ids['specular_ior'], props['ior'])
+
+            # Transmission (for glass)
+            if 'transmission_weight' in props and props['transmission_weight'] > 0:
+                self._set_port_value(openpbr_node, port_ids['transmission_weight'], props['transmission_weight'])
+                
+                if 'transmission_color' in props:
+                    color = props['transmission_color']
+                    self._set_port_value(openpbr_node, port_ids['transmission_color'],
+                                 maxon.Color(color.x, color.y, color.z))
+                
+                if 'transmission_depth' in props:
+                    self._set_port_value(openpbr_node, port_ids['transmission_depth'], props['transmission_depth'])
+
+            # Subsurface (for rubber/skin)
+            if 'subsurface_weight' in props and props['subsurface_weight'] > 0:
+                self._set_port_value(openpbr_node, port_ids['subsurface_weight'], props['subsurface_weight'])
+                
+                if 'subsurface_color' in props:
+                    color = props['subsurface_color']
+                    self._set_port_value(openpbr_node, port_ids['subsurface_color'],
+                                 maxon.Color(color.x, color.y, color.z))
+                
+                if 'subsurface_radius' in props:
+                    self._set_port_value(openpbr_node, port_ids['subsurface_radius'], props['subsurface_radius'])
+
+        except Exception as e:
+            self.logger.log(f"Error setting OpenPBR properties: {str(e)}", "ERROR")
+
+    def _set_port_value(self, node, port_id, value):
+        """
+        Set a value on a node port
+        """
+        try:
+            # Find the input port
+            for port in node.GetInputs():
+                if port.GetId() == port_id:
+                    port.SetDefaultValue(value)
+                    return True
+
+            # If not found in inputs, try direct value setting
+            node.SetValue(port_id, value)
+            return True
+        except Exception as e:
+            self.logger.log(f"Warning: Could not set port {port_id}: {str(e)}", "WARNING")
+            return False
     
     def _find_material_in_document(self, mat_name, doc):
         """Find a material with specific name in the document"""
@@ -599,9 +711,10 @@ class Cinema4DMaterialManager:
             self.logger.log(f"  📦 Found material in cache by signature: {cached_mat.GetName() if cached_mat else 'None'}")
             # Check if the cached material is valid
             # Check if material is a standard material or a Redshift material (if Redshift is available)
-            mat_type_check = (cached_mat.GetType() == c4d.Mmaterial)
-            if REDSHIFT_AVAILABLE and hasattr(c4d, 'Mredshift'):
-                mat_type_check = mat_type_check or (cached_mat.GetType() == c4d.Mredshift)
+            standard_check = (cached_mat.GetType() == c4d.Mmaterial)
+            redshift_plugin_id = 1036223  # Redshift plugin ID
+            redshift_check = (cached_mat.GetType() == redshift_plugin_id)
+            mat_type_check = standard_check or redshift_check
             
             if cached_mat and mat_type_check:
                 return cached_mat
@@ -646,13 +759,15 @@ class Cinema4DMaterialManager:
             
             # Check if material matches type requirements based on mode
             material_type_match = False
-            if mode == "material_extraction" and REDSHIFT_AVAILABLE:
-                # In Step 1, look for Redshift materials if available
-                material_type_match = (hasattr(c4d, 'Mredshift') and mat.GetType() == c4d.Mredshift)
+            if mode == "material_extraction":
+                # In Step 1, look for Redshift materials if available - use plugin ID instead of Mredshift
+                redshift_plugin_id = 1036223  # Redshift plugin ID
+                material_type_match = (mat.GetType() == redshift_plugin_id)
             else:
                 # For other modes, look for either standard or Redshift materials (if available)
                 standard_match = (mat.GetType() == c4d.Mmaterial)
-                redshift_match = (hasattr(c4d, 'Mredshift') and mat.GetType() == c4d.Mredshift)
+                redshift_plugin_id = 1036223  # Redshift plugin ID
+                redshift_match = (mat.GetType() == redshift_plugin_id)
                 material_type_match = standard_match or redshift_match
             
             if material_type_match and mat.GetName() == mat_name:
@@ -675,13 +790,15 @@ class Cinema4DMaterialManager:
         while mat:
             # Check if material matches type requirements based on mode
             material_type_match = False
-            if mode == "material_extraction" and REDSHIFT_AVAILABLE:
-                # In Step 1, look for Redshift materials if available
-                material_type_match = (hasattr(c4d, 'Mredshift') and mat.GetType() == c4d.Mredshift)
+            if mode == "material_extraction":
+                # In Step 1, look for Redshift materials if available - use plugin ID instead of Mredshift
+                redshift_plugin_id = 1036223  # Redshift plugin ID
+                material_type_match = (mat.GetType() == redshift_plugin_id)
             else:
                 # For other modes, look for either standard or Redshift materials (if available)
                 standard_match = (mat.GetType() == c4d.Mmaterial)
-                redshift_match = (hasattr(c4d, 'Mredshift') and mat.GetType() == c4d.Mredshift)
+                redshift_plugin_id = 1036223  # Redshift plugin ID
+                redshift_match = (mat.GetType() == redshift_plugin_id)
                 material_type_match = standard_match or redshift_match
             
             if material_type_match:
@@ -709,30 +826,75 @@ class Cinema4DMaterialManager:
         property_tolerance = 0.15  # Allow 15% difference in roughness/properties
         
         mat_type = mat.GetType()
-        
-        # Handle Redshift material comparison - check if Redshift is available and constants exist
-        if REDSHIFT_AVAILABLE and hasattr(c4d, 'Mredshift') and mat_type == c4d.Mredshift:
-            # Handle Redshift material comparison
+
+        # Handle Redshift material comparison - check using plugin ID instead of Mredshift constant
+        redshift_plugin_id = 1036223  # Redshift plugin ID (built into C4D 2025)
+        if mat_type == redshift_plugin_id:
+            # Since Redshift is built into Cinema 4D 2025, import is always available
+            import redshift
+            import maxon
+
+            # Handle Redshift material comparison using the modern nodes API
             try:
-                # Get the Redshift material node graph
-                rsMat = redshift.GetRSMaterialNodeGraph(mat)
-                if not rsMat:
+                # Get node material reference
+                nodeMaterial = mat.GetNodeMaterialReference()
+                if not nodeMaterial:
                     return False
                 
-                # Find the OpenPBR node
-                rootNode = rsMat.GetOutput()
-                if not rootNode:
+                # Get the graph - try multiple approaches for Redshift integration
+                graph = None
+                try:
+                    graph = nodeMaterial.GetGraph(maxon.Id(REDSHIFT_NODESPACE_ID))
+                except:
+                    try:
+                        graph = nodeMaterial.GetGraph(REDSHIFT_NODESPACE_ID)
+                    except:
+                        # If both fail, try active graph
+                        try:
+                            graph = nodeMaterial.GetActiveGraph()
+                        except:
+                            pass
+                if not graph:
                     return False
                 
-                # Look for the OpenPBR node connected to output
-                # Check if the material has the expected OpenPBR properties
-                # Use hasattr to check for Redshift constants before accessing them
-                if hasattr(c4d, 'REDSHIFT_SHADER_OPENPBR_BASE_COLOR') and c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR in mat:
-                    existing_color = mat[c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR]
-                elif hasattr(c4d, 'REDSHIFT_MATERIAL_OVERRIDE_COLOR') and c4d.REDSHIFT_MATERIAL_OVERRIDE_COLOR in mat:
-                    existing_color = mat[c4d.REDSHIFT_MATERIAL_OVERRIDE_COLOR]
-                else:
-                    # Default fallback color
+                # Find the OpenPBR node in the graph
+                openpbr_node = None
+                rs_openpbr_id = maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface")
+                
+                for node in graph.GetRoot().GetChildren():
+                    if node.GetValue(maxon.NODE.BASE.ASSETID) == rs_openpbr_id:
+                        openpbr_node = node
+                        break
+                
+                if not openpbr_node:
+                    # If no OpenPBR node found, fallback to other methods
+                    return False
+                
+                # Port IDs for OpenPBR Surface
+                port_ids = {
+                    'base_color': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.base_color"),
+                    'base_metalness': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.base_metalness"),
+                    'specular_roughness': maxon.Id("com.redshift3d.redshift4c4d.nodes.core.openpdrsurface.specular_roughness"),
+                }
+                
+                # Get base color from node
+                try:
+                    color_port = None
+                    for port in openpbr_node.GetInputs():
+                        if port.GetId() == port_ids['base_color']:
+                            color_port = port
+                            break
+                    
+                    if color_port:
+                        existing_color = color_port.GetDefaultValue()
+                        if isinstance(existing_color, maxon.Color):
+                            existing_color = c4d.Vector(existing_color.x, existing_color.y, existing_color.z)
+                        else:
+                            # Get default value differently if it's not a color
+                            existing_color = c4d.Vector(0.5, 0.5, 0.5)
+                    else:
+                        existing_color = c4d.Vector(0.5, 0.5, 0.5)
+                except:
                     existing_color = c4d.Vector(0.5, 0.5, 0.5)
                 
                 target_color = props['base_color']
@@ -742,10 +904,18 @@ class Cinema4DMaterialManager:
                     return False
                 
                 # Check metalness
-                if hasattr(c4d, 'REDSHIFT_SHADER_OPENPBR_BASE_METALNESS') and c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS in mat:
-                    existing_metalness = mat[c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS]
-                else:
-                    # Default to 0 if property doesn't exist
+                try:
+                    metalness_port = None
+                    for port in openpbr_node.GetInputs():
+                        if port.GetId() == port_ids['base_metalness']:
+                            metalness_port = port
+                            break
+                    
+                    if metalness_port:
+                        existing_metalness = metalness_port.GetDefaultValue()
+                    else:
+                        existing_metalness = 0.0
+                except:
                     existing_metalness = 0.0
                 
                 target_metalness = props['metalness']
@@ -753,9 +923,18 @@ class Cinema4DMaterialManager:
                     return False
                 
                 # Check roughness
-                if hasattr(c4d, 'REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS') and c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS in mat:
-                    existing_roughness = mat[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS]
-                else:
+                try:
+                    roughness_port = None
+                    for port in openpbr_node.GetInputs():
+                        if port.GetId() == port_ids['specular_roughness']:
+                            roughness_port = port
+                            break
+                    
+                    if roughness_port:
+                        existing_roughness = roughness_port.GetDefaultValue()
+                    else:
+                        existing_roughness = 0.5  # Default roughness
+                except:
                     existing_roughness = 0.5  # Default roughness
                 
                 target_roughness = props['roughness']
@@ -766,7 +945,7 @@ class Cinema4DMaterialManager:
             except:
                 # If Redshift comparison fails, fall back to basic comparison
                 pass
-        
+
         # Default to standard Cinema 4D material comparison
         # Check base color
         try:
@@ -779,14 +958,14 @@ class Cinema4DMaterialManager:
             abs(existing_color.y - target_color.y) > color_tolerance or
             abs(existing_color.z - target_color.z) > color_tolerance):
             return False
-        
+
         # For standard materials, check reflection
         try:
             if not mat[c4d.MATERIAL_USE_REFLECTION]:
                 return False
         except:
             pass  # Continue even if we can't check reflection setting
-        
+
         # For standard materials
         try:
             # Check reflectance layer
@@ -804,7 +983,7 @@ class Cinema4DMaterialManager:
                         return False
                 except:
                     pass  # If we can't check roughness, continue
-                
+
                 # Check metalness (approximated by fresnel mode and color)
                 try:
                     fresnel_mode = mat[layer_id + c4d.REFLECTION_LAYER_FRESNEL_MODE]
@@ -817,7 +996,7 @@ class Cinema4DMaterialManager:
                     pass  # If we can't check fresnel mode, continue
         except:
             pass  # If reflection layer checks fail, continue with basic checks
-        
+
         # All properties are similar enough!
         return True
     
@@ -1190,14 +1369,7 @@ class Cinema4DImporter:
         self.processed_jt_count = 0  # Counter for processed JT files (for progress tracking)
         self.processed_rs_count = 0  # Counter for processed RS files (for progress tracking)
     
-    def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None, working_directory=None):
-        """Build the Cinema 4D scene hierarchy from parsed data"""
-        # For Step 1 (material extraction), check if Redshift is available and properly configured
-        if mode == "material_extraction" and (not REDSHIFT_AVAILABLE or not hasattr(c4d, 'Mredshift')):
-            self.logger.log("❌ Redshift is not available or not properly configured. Step 1 (Material Extraction) requires Redshift to function.", "ERROR")
-            c4d.gui.MessageDialog("Redshift is not available or not properly configured. Step 1 (Material Extraction) requires Redshift to function.")
-            return False  # Return False to indicate failure
-        
+    def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None, working_directory=None):        
         # Reset unknown keywords tracking for this import
         MaterialPropertyInference.unknown_keywords.clear()
         
@@ -1285,18 +1457,9 @@ class Cinema4DImporter:
     
     def _process_all_jt_files_for_material_extraction(self, plmxml_parser, doc):
         """Process all JT files directly for material extraction without building assembly tree - Step 1 only"""
-        # Check if Redshift is available and properly configured - this is mandatory for Step 1
-        if not REDSHIFT_AVAILABLE:
-            self.logger.log(f"❌ Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.", "ERROR")
-            c4d.gui.MessageDialog("Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.")
-            return  # Exit early if Redshift is not available
-        
-        # Also check if Redshift constants exist (Redshift module might be imported but not properly configured) 
-        if not hasattr(c4d, 'Mredshift'):
-            self.logger.log(f"❌ Redshift constants are not available. Step 1 (Material Extraction) requires Redshift to be properly installed and configured.", "ERROR")
-            c4d.gui.MessageDialog("Redshift is not properly installed or configured. Step 1 (Material Extraction) requires Redshift to be properly installed and configured.")
-            return  # Exit early if Redshift constants are not available
-        
+        # Since Redshift is built into Cinema 4D 2025, import is always available
+        import redshift
+
         # Iterate through all instances and parts to collect all unique JT files
         processed_jt_files = set()  # Keep track of processed files to avoid duplicates
         
@@ -1450,13 +1613,7 @@ class Cinema4DImporter:
                 )
     
     def _process_material_extraction(self, jt_path, material_properties, doc):
-        """Process material extraction only - no geometry loading"""
-        # Check if Redshift is available - this is mandatory for Step 1
-        if not REDSHIFT_AVAILABLE:
-            self.logger.log(f"❌ Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.", "ERROR")
-            c4d.gui.MessageDialog("Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.")
-            return
-        
+        """Process material extraction only - no geometry loading"""        
         self.logger.log(f"🎨 Extracting materials from: {os.path.basename(jt_path)}")
         
         # Create material from properties
@@ -1484,29 +1641,8 @@ class Cinema4DImporter:
         remaining_files = max(0, self.total_jt_files - self.processed_jt_count)
         self.logger.log(f"🎬 Creating redshift proxy for: {os.path.basename(jt_path)} ({self.processed_jt_count}/{self.total_jt_files}, {remaining_files} left)")
         
-        # Check if Redshift is available
-        try:
-            import c4d.plugins
-            # Redshift plugin ID may vary by version, try the most common one
-            redshift_plugin_ids = [1036223, 1001059]  # Common Redshift plugin IDs
-            redshift_plugin = None
-            found_plugin_id = None
-            
-            for plugin_id in redshift_plugin_ids:
-                redshift_plugin = c4d.plugins.FindPlugin(plugin_id)
-                if redshift_plugin is not None:
-                    found_plugin_id = plugin_id
-                    self.logger.log(f"✓ Redshift plugin found with ID: {plugin_id}")
-                    break
-            
-            if redshift_plugin is None:
-                self.logger.log("⚠ Redshift not found, skipping proxy creation", "WARNING")
-                return
-            else:
-                self.logger.log(f"✓ Using Redshift plugin ID: {found_plugin_id}")
-        except Exception as e:
-            self.logger.log(f"⚠ Could not access Redshift: {str(e)}, skipping proxy creation", "WARNING")
-            return
+        # Since Redshift is built into Cinema 4D 2025, import is always available
+        import redshift
         
         # Check if file exists
         if not os.path.exists(jt_path):
@@ -1786,63 +1922,52 @@ class Cinema4DImporter:
         
         # Create proxy object (or placeholder if proxy doesn't exist) as a child of the JT null object
         if proxy_exists:
-            # Create Redshift proxy object (Redshift is assumed to be available)
-            try:
-                # Create Redshift proxy object using the plugin ID
-                proxy_obj = c4d.BaseObject(1038649)  # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
-                if proxy_obj:
-                    # Set the proxy file path (just the filename, not full path, as per requirements)
-                    proxy_filename_only = os.path.basename(proxy_path)
+            # Since Redshift is built into Cinema 4D 2025, create the proxy object directly
+            # Create Redshift proxy object using the plugin ID
+            proxy_obj = c4d.BaseObject(1038649)  # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
+            if proxy_obj:
+                # Set the proxy file path (just the filename, not full path, as per requirements)
+                proxy_filename_only = os.path.basename(proxy_path)
+                
+                # Set the proxy's name to the filename
+                proxy_obj.SetName(proxy_filename)
+                
+                # Try to set the Redshift proxy file property if Redshift is available
+                # Use the Redshift plugin ID approach which is more reliable
+                try:
+                    # Create a proper c4d.Filename object - this is what Redshift proxies expect
+                    proxy_file_obj = c4d.Filename(proxy_filename_only)
                     
-                    # Set the proxy's name to the filename
-                    proxy_obj.SetName(proxy_filename)
-                    
-                    # Try to set the Redshift proxy file property if Redshift is available
+                    # Try the Redshift proxy constant if available
                     if hasattr(c4d, 'REDSHIFT_PROXY_FILE'):
-                        try:
-                            # Log the Redshift proxy file constant for debugging
-                            redshift_constant = getattr(c4d, 'REDSHIFT_PROXY_FILE')
-                            self.logger.log(f"🔍 Redshift proxy file constant: {redshift_constant} (type: {type(redshift_constant)})", "INFO")
-                            
-                            # Try setting the parameter using the proper c4d.Filename object like the sample code
-                            self.logger.log(f"🔍 Attempting to set Redshift proxy file property with c4d.Filename: {proxy_filename_only}", "INFO")
-                            try:
-                                # Create a proper c4d.Filename object - this is what Redshift proxies expect
-                                proxy_file_obj = c4d.Filename(proxy_filename_only)
-                                proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_file_obj
-                                self.logger.log(f"✅ Redshift proxy file property set successfully: {proxy_filename_only}", "INFO")
-                                # Trigger an update to make sure the parameter takes effect
-                                proxy_obj.Message(c4d.MSG_UPDATE)
-                            except Exception as e:
-                                self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}. Error: {str(e)}", "WARNING")
-                        except Exception as e:
-                            # If setting the file property fails, log it but continue
-                            self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}. Error: {str(e)}", "WARNING")
+                        proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_file_obj
+                        self.logger.log(f"✅ Redshift proxy file property set using REDSHIFT_PROXY_FILE: {proxy_filename_only}", "INFO")
                     else:
-                        # Redshift not available
-                        self.logger.log(f"ℹ Redshift not available, creating proxy: {proxy_filename_only}", "INFO")
-                    proxy_obj.SetName(proxy_filename)
+                        # Fallback: Try setting using the common plugin ID value for Redshift proxy objects
+                        # The Redshift proxy loader has parameter ID 3001 for the file path in common versions
+                        proxy_obj[3001] = proxy_file_obj
+                        self.logger.log(f"✅ Redshift proxy file property set using fallback parameter ID: {proxy_filename_only}", "INFO")
                     
-                    doc.InsertObject(proxy_obj)  # Insert into document first
-                    proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
-                    self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
-                    
-                    # Trigger Cinema 4D event update like the sample code
-                    c4d.EventAdd()
-                else:
-                    # If Redshift proxy creation failed, create placeholder cube
-                    proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
-                    proxy_obj.SetName("Placeholder_Cube")
-                    doc.InsertObject(proxy_obj)  # Insert into document first
-                    proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
-                    self.logger.log(f"🟦 Failed to create Redshift proxy, using placeholder: {proxy_filename}")
-            except:
-                # If Redshift is not available or any other error, create placeholder cube
+                    # Trigger an update to make sure the parameter takes effect
+                    proxy_obj.Message(c4d.MSG_UPDATE)
+                except Exception as e:
+                    self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}. Error: {str(e)}", "WARNING")
+                proxy_obj.SetName(proxy_filename)
+                
+                doc.InsertObject(proxy_obj)  # Insert into document first
+                proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+                self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
+                
+                # Trigger Cinema 4D event update like the sample code
+                c4d.EventAdd()
+            else:
+                # If Redshift proxy creation failed, create placeholder cube
                 proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
                 proxy_obj.SetName("Placeholder_Cube")
                 doc.InsertObject(proxy_obj)  # Insert into document first
                 proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
-                self.logger.log(f"🟦 Redshift not available, using placeholder: {proxy_filename}")
+                self.logger.log(f"🟦 Failed to create Redshift proxy, using placeholder: {proxy_filename}")
+
         else:
             # Proxy file doesn't exist, create placeholder cube as child of JT null object
             proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube (500cm in Cinema 4D units)
@@ -2142,20 +2267,7 @@ class PLMXMLDialog(gui.GeDialog):
         print(f"📁 Using log file: {log_filename}")
         logger.log(f"🚀 Starting import process for: {os.path.basename(self.plmxml_path)}", "INFO")
         logger.log(f"📁 Using log file: {log_filename}", "INFO")
-        logger.log(f"🎬 Cinema 4D document path: {c4d_document_path}", "INFO")
-        logger.log(f"📂 Working directory for all file operations: {self.working_directory}", "INFO")
-        logger.log(f"📂 Directory for searching PLMXML and JT files: {self.working_directory}", "INFO")
-        
-        # Verify that both paths are the same
-        if c4d_document_path and os.path.dirname(c4d_document_path) == self.working_directory:
-            logger.log(f"✅ Verification: C4D document directory and working directory match", "INFO")
-        elif not c4d_document_path:
-            logger.log(f"⚠️ Verification: C4D document not saved yet (no path available)", "WARNING")
-        else:
-            logger.log(f"❌ Verification: C4D document directory and working directory differ", "ERROR")
-            logger.log(f"   C4D document directory: {os.path.dirname(c4d_document_path) if c4d_document_path else 'N/A'}", "ERROR")
-            logger.log(f"   Working directory: {self.working_directory}", "ERROR")
-        
+        logger.log(f"🎬 Cinema 4D document path: {c4d_document_path}", "INFO")        
         logger.log(f"🔧 Selected mode: {self.selected_mode}", "INFO")
         
         try:
