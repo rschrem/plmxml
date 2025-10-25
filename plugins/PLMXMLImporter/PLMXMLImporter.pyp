@@ -2361,27 +2361,55 @@ class Cinema4DImporter:
                 # Set the proxy's name to the filename
                 proxy_obj.SetName(proxy_filename)
                 
-                # Try to set the Redshift proxy file property if Redshift is available
-                # Use the Redshift plugin ID approach which is more reliable
-                try:
-                    # Create a proper c4d.Filename object - this is what Redshift proxies expect
-                    proxy_file_obj = c4d.Filename(proxy_filename_only)
-                    
-                    # Try the Redshift proxy constant if available
-                    if hasattr(c4d, 'REDSHIFT_PROXY_FILE'):
-                        proxy_obj[c4d.REDSHIFT_PROXY_FILE] = proxy_file_obj
-                        self.logger.log(f"✅ Redshift proxy file property set using REDSHIFT_PROXY_FILE: {proxy_filename_only}", "INFO")
-                    else:
-                        # Fallback: Try setting using the common plugin ID value for Redshift proxy objects
-                        # The Redshift proxy loader has parameter ID 3001 for the file path in common versions
-                        proxy_obj[3001] = proxy_file_obj
-                        self.logger.log(f"✅ Redshift proxy file property set using fallback parameter ID: {proxy_filename_only}", "INFO")
-                    
-                    # Trigger an update to make sure the parameter takes effect
-                    proxy_obj.Message(c4d.MSG_UPDATE)
-                except Exception as e:
-                    self.logger.log(f"⚠ Could not set Redshift proxy file property for: {proxy_filename_only}. Error: {str(e)}", "WARNING")
-                proxy_obj.SetName(proxy_filename)
+                # Try to set the Redshift proxy file property - use multiple approaches to ensure it works
+                proxy_set_success = False
+                # Known parameter IDs for Redshift proxy file path
+                proxy_param_ids = [
+                    2001,  # From documentation: REDSHIFT_PROXY_FILE
+                    3001,  # Common fallback parameter ID
+                    c4d.REDSHIFT_PROXY_FILE if hasattr(c4d, 'REDSHIFT_PROXY_FILE') else None  # Direct constant reference
+                ]
+                
+                # Filter out None values
+                proxy_param_ids = [pid for pid in proxy_param_ids if pid is not None]
+                
+                # Create a proper c4d.Filename object - this is what Redshift proxies expect
+                proxy_file_obj = c4d.Filename(proxy_path)  # Use full path instead of just filename
+                
+                for param_id in proxy_param_ids:
+                    try:
+                        proxy_obj[param_id] = proxy_file_obj
+                        self.logger.log(f"✅ Redshift proxy file property set using parameter ID: {param_id} with path: {proxy_path}", "INFO")
+                        proxy_set_success = True
+                        break
+                    except Exception as e:
+                        self.logger.log(f"⚠ Failed to set proxy file using parameter ID {param_id}: {str(e)}", "WARNING")
+                
+                # If none of the above worked, try to find the parameter dynamically
+                if not proxy_set_success:
+                    try:
+                        # Try to get the proxy file parameter through the object description
+                        desc = proxy_obj.GetDescription(c4d.DESCFLAGS_DESC)
+                        for bc, group_id, group_bc in desc:
+                            if bc.GetId() >= 1000:  # Parameters typically start from 1000
+                                param_name = bc.GetString(c4d.DESC_NAME)
+                                if 'file' in param_name.lower() or 'path' in param_name.lower() or 'proxy' in param_name.lower():
+                                    try:
+                                        proxy_obj[bc.GetId()] = proxy_file_obj
+                                        self.logger.log(f"✅ Redshift proxy file property set using discovered parameter ID: {bc.GetId()}", "INFO")
+                                        proxy_set_success = True
+                                        break
+                                    except:
+                                        continue
+                    except:
+                        self.logger.log(f"⚠ Could not dynamically discover proxy file parameter", "WARNING")
+                
+                # If still no success, log a warning
+                if not proxy_set_success:
+                    self.logger.log(f"⚠ Could not set proxy file path property for: {proxy_filename_only}. Tried parameter IDs: {proxy_param_ids}", "WARNING")
+                
+                # Trigger an update to make sure the parameter takes effect
+                proxy_obj.Message(c4d.MSG_UPDATE)
                 
                 doc.InsertObject(proxy_obj)  # Insert into document first
                 proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
