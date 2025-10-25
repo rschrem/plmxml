@@ -11,6 +11,11 @@ import xml.etree.ElementTree as ET
 import os
 from collections import defaultdict
 import traceback
+try:
+    import redshift
+    REDSHIFT_AVAILABLE = True
+except ImportError:
+    REDSHIFT_AVAILABLE = False
 
 
 # Plugin ID - Unique identifier for this plugin
@@ -253,11 +258,14 @@ class Cinema4DMaterialManager:
         self.material_cache = {}  # Dictionary to store created materials
         self.material_properties_cache = {}
     
-    def create_material(self, material_data, doc):
-        """Create a Cinema 4D material based on material data - using improved algorithm"""
+    def create_material(self, material_data, doc, mode="assembly"):
+        """Create a material based on material data - using improved algorithm"""
         # Create a unique material name based on material properties
         mat_name = self._generate_material_name(material_data)
-        self.logger.log(f"🔍 Material creation requested for: {mat_name}")
+        self.logger.log(f"🔍 Material creation requested for: {mat_name} in mode: {mode}")
+        
+        # For Step 1 (material extraction), check if we should create Redshift materials
+        is_step1 = mode == "material_extraction"
         
         # Show current cache contents for debugging
         self.logger.log(f"📦 Current cache contents: {len(self.material_cache)} items")
@@ -269,7 +277,7 @@ class Cinema4DMaterialManager:
             cached_mat = self.material_cache[mat_name]
             self.logger.log(f"📦 Found material in cache: {cached_mat.GetName() if cached_mat else 'None'}")
             # Verify the cached material is still valid/alive
-            if cached_mat and cached_mat.GetType() == c4d.Mmaterial:
+            if cached_mat and (cached_mat.GetType() == c4d.Mmaterial or cached_mat.GetType() == c4d.Mredshift):
                 self.logger.log(f"♻ Reusing cached material: {cached_mat.GetName()}")
                 return cached_mat
             else:
@@ -299,7 +307,7 @@ class Cinema4DMaterialManager:
             return existing_material_in_doc
         
         # Check if we already have a similar material in our cache using improved algorithm
-        existing_material = self.find_existing_material(material_data, doc)
+        existing_material = self.find_existing_material(material_data, doc, mode)
         if existing_material:
             self.logger.log(f"♻ Reusing cached material: {existing_material.GetName()}")
             return existing_material
@@ -307,12 +315,19 @@ class Cinema4DMaterialManager:
         # Get material properties using improved inference algorithm
         props = MaterialPropertyInference.infer_material_properties(material_data, self.logger)
         
-        # Create a new material using the improved method - similar to example
-        mat = self._create_standard_material(material_data.get('mat_group', ''), 
-                                           material_data.get('mat_standard', ''),
-                                           material_data.get('mat_number', ''),
-                                           material_data.get('mat_term', ''),
-                                           props)
+        # Create a new material based on the mode
+        if is_step1 and REDSHIFT_AVAILABLE:
+            # Create Redshift OpenPBR material for Step 1
+            mat = self._create_redshift_openpbr_material(mat_name, props, doc)
+            self.logger.log(f"🎨 Creating Redshift OpenPBR material: {mat_name} (Step 1)")
+        else:
+            # Create standard Cinema 4D material for other modes
+            mat = self._create_standard_material(material_data.get('mat_group', ''), 
+                                               material_data.get('mat_standard', ''),
+                                               material_data.get('mat_number', ''),
+                                               material_data.get('mat_term', ''),
+                                               props)
+            self.logger.log(f"🎨 Creating standard Cinema 4D material: {mat_name} (Mode: {mode})")
         
         if not mat:
             self.logger.log("✗ Failed to create new material", "ERROR")
@@ -437,6 +452,81 @@ class Cinema4DMaterialManager:
         mat.Update(True, True)
         return mat
     
+    def _create_redshift_openpbr_material(self, name, props, doc):
+        """
+        Create a Redshift OpenPBR material from inferred properties
+        """
+        # Check for Redshift availability
+        if not REDSHIFT_AVAILABLE:
+            self.logger.log("⚠ Redshift not available, cannot create OpenPBR material", "WARNING")
+            return None
+            
+        # Create the Redshift material
+        mat = c4d.BaseMaterial(c4d.Mredshift)
+        if not mat:
+            self.logger.log("ERROR: Could not create Redshift material", "ERROR")
+            return None
+        
+        mat.SetName(name)
+        
+        # Get the Redshift material node graph
+        try:
+            rsMat = redshift.GetRSMaterialNodeGraph(mat)
+            if not rsMat:
+                self.logger.log("ERROR: Could not get Redshift material node graph", "ERROR")
+                return None
+        except Exception as e:
+            self.logger.log(f"ERROR: Could not access Redshift node graph: {str(e)}", "ERROR")
+            return None
+        
+        # Get the root node (output)
+        rootNode = rsMat.GetOutput()
+        if not rootNode:
+            self.logger.log("ERROR: Could not get Redshift material output node", "ERROR")
+            return None
+        
+        # Create OpenPBR Surface shader
+        openpbrNode = rsMat.AddNode(c4d.GvNode, c4d.Rsopenpdrsurface)
+        if not openpbrNode:
+            self.logger.log("ERROR: Could not create OpenPBR node", "ERROR")
+            return None
+        
+        openpbrNode.SetName(name)
+        
+        # Connect OpenPBR to output
+        openpbrNode.GetOutPort(0).Connect(rootNode.GetInPort(0))
+        
+        # Apply the inferred properties to the OpenPBR node
+        try:
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR] = props.get('base_color', c4d.Vector(0.7, 0.7, 0.7))
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_WEIGHT] = 1.0
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS] = props.get('metalness', 0.0)
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_WEIGHT] = 1.0
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS] = props.get('roughness', 0.5)
+            openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_IOR] = props.get('ior', 1.5)
+            
+            # Handle transparency/transmission
+            transmission_weight = props.get('transmission_weight', 0.0)
+            if transmission_weight > 0 or props.get('transparency', 0.0) > 0:
+                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_WEIGHT] = transmission_weight or props.get('transparency', 0.0)
+                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_COLOR] = props.get('transmission_color', c4d.Vector(1, 1, 1))
+                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_TRANSMISSION_DEPTH] = props.get('transmission_depth', 0.0)
+            
+            # Handle subsurface scattering
+            subsurface_weight = props.get('subsurface_weight', 0.0)
+            if subsurface_weight > 0:
+                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_WEIGHT] = subsurface_weight
+                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_COLOR] = props.get('subsurface_color', props.get('base_color', c4d.Vector(0.5, 0.5, 0.5)))
+                openpbrNode[c4d.REDSHIFT_SHADER_OPENPBR_SUBSURFACE_RADIUS] = props.get('subsurface_radius', 1.0)
+        except Exception as e:
+            self.logger.log(f"ERROR: Could not set OpenPBR parameters: {str(e)}", "ERROR")
+            return None
+        
+        # Insert material into document
+        doc.InsertMaterial(mat)
+        
+        return mat
+    
     def _find_material_in_document(self, mat_name, doc):
         """Find a material with specific name in the document"""
         self.logger.log(f"🔍 Searching for material '{mat_name}' in document")
@@ -474,7 +564,7 @@ class Cinema4DMaterialManager:
         }
         return props
     
-    def find_existing_material(self, material_data, doc):
+    def find_existing_material(self, material_data, doc, mode="assembly"):
         """Find existing similar material using improved algorithm"""
         self.logger.log("🔍 Checking for existing material using improved algorithm")
         
@@ -496,11 +586,13 @@ class Cinema4DMaterialManager:
         if signature in self.material_cache:
             cached_mat = self.material_cache[signature]
             self.logger.log(f"  📦 Found material in cache by signature: {cached_mat.GetName() if cached_mat else 'None'}")
-            return cached_mat
+            # Check if the cached material is valid
+            if cached_mat and (cached_mat.GetType() == c4d.Mmaterial or cached_mat.GetType() == c4d.Mredshift):
+                return cached_mat
         
         # Check if identical material already exists in document
         self.logger.log(f"  🔍 Searching document for existing material: {mat_name}")
-        existing_mat = self._find_existing_material_improved(mat_name, mat_group, mat_standard, mat_number, mat_term, treatment, doc)
+        existing_mat = self._find_existing_material_improved(mat_name, mat_group, mat_standard, mat_number, mat_term, treatment, doc, mode)
         if existing_mat:
             self.logger.log(f"♻ Reusing existing material: {existing_mat.GetName()}")
             self.material_cache[signature] = existing_mat
@@ -513,9 +605,9 @@ class Cinema4DMaterialManager:
         sig = f"{mat_group}|{mat_standard}|{mat_number}|{mat_term}".strip()
         return sig
     
-    def _find_existing_material_improved(self, mat_name, mat_group, mat_standard, mat_number, mat_term, treatment, doc):
+    def _find_existing_material_improved(self, mat_name, mat_group, mat_standard, mat_number, mat_term, treatment, doc, mode="assembly"):
         """Check if a material with matching name and properties already exists - using improved algorithm"""
-        self.logger.log(f"🔍 _find_existing_material_improved called with: name={mat_name}, group={mat_group}, standard={mat_standard}, number={mat_number}, term={mat_term}, treatment={treatment}")
+        self.logger.log(f"🔍 _find_existing_material_improved called with: name={mat_name}, group={mat_group}, standard={mat_standard}, number={mat_number}, term={mat_term}, treatment={treatment}, mode={mode}")
         
         # Extract material properties for comparison
         props = MaterialPropertyInference.infer_material_properties(
@@ -534,8 +626,18 @@ class Cinema4DMaterialManager:
         self.logger.log(f"  🔍 First pass - searching for exact name match: {mat_name}")
         mat = doc.GetFirstMaterial()
         while mat:
-            self.logger.log(f"    🎨 Checking material: {mat.GetName()}")
-            if mat.GetType() == c4d.Mmaterial and mat.GetName() == mat_name:
+            self.logger.log(f"    🎨 Checking material: {mat.GetName()}, Type: {mat.GetType()}")
+            
+            # Check if material matches type requirements based on mode
+            material_type_match = False
+            if mode == "material_extraction" and REDSHIFT_AVAILABLE:
+                # In Step 1, look for Redshift materials
+                material_type_match = mat.GetType() == c4d.Mredshift
+            else:
+                # For other modes, look for either standard or Redshift materials
+                material_type_match = (mat.GetType() == c4d.Mmaterial or mat.GetType() == c4d.Mredshift)
+            
+            if material_type_match and mat.GetName() == mat_name:
                 self.logger.log(f"    ✅ Exact name match found: {mat.GetName()}")
                 if self._compare_material_properties(mat, props):
                     self.logger.log(f"    ✅ Properties also match, returning: {mat.GetName()}")
@@ -553,7 +655,16 @@ class Cinema4DMaterialManager:
         
         mat = doc.GetFirstMaterial()
         while mat:
-            if mat.GetType() == c4d.Mmaterial:
+            # Check if material matches type requirements based on mode
+            material_type_match = False
+            if mode == "material_extraction" and REDSHIFT_AVAILABLE:
+                # In Step 1, look for Redshift materials
+                material_type_match = mat.GetType() == c4d.Mredshift
+            else:
+                # For other modes, look for either standard or Redshift materials
+                material_type_match = (mat.GetType() == c4d.Mmaterial or mat.GetType() == c4d.Mredshift)
+            
+            if material_type_match:
                 existing_base_type = mat.GetName().split('_')[0] if '_' in mat.GetName() else mat.GetName()
                 self.logger.log(f"    🎨 Checking material base type: {existing_base_type} for material: {mat.GetName()}")
                 
@@ -577,43 +688,114 @@ class Cinema4DMaterialManager:
         color_tolerance = 0.1  # Allow 10% difference in color
         property_tolerance = 0.15  # Allow 15% difference in roughness/properties
         
+        mat_type = mat.GetType()
+        
+        if mat_type == c4d.Mredshift and REDSHIFT_AVAILABLE:
+            # Handle Redshift material comparison
+            try:
+                # Get the Redshift material node graph
+                rsMat = redshift.GetRSMaterialNodeGraph(mat)
+                if not rsMat:
+                    return False
+                
+                # Find the OpenPBR node
+                rootNode = rsMat.GetOutput()
+                if not rootNode:
+                    return False
+                
+                # Look for the OpenPBR node connected to output
+                # This requires traversing the node graph, simplified approach:
+                # Check if the material has the expected OpenPBR properties
+                if c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR in mat:
+                    existing_color = mat[c4d.REDSHIFT_SHADER_OPENPBR_BASE_COLOR]
+                else:
+                    # Check the node graph directly
+                    nodes = []  # We would need to traverse the node graph to find the OpenPBR surface
+                    # For now, we'll use a simpler approach by checking common Redshift material properties
+                    existing_color = mat[c4d.REDSHIFT_MATERIAL_OVERRIDE_COLOR] if c4d.REDSHIFT_MATERIAL_OVERRIDE_COLOR in mat else c4d.Vector(0.5, 0.5, 0.5)
+                
+                target_color = props['base_color']
+                if (abs(existing_color.x - target_color.x) > color_tolerance or
+                    abs(existing_color.y - target_color.y) > color_tolerance or
+                    abs(existing_color.z - target_color.z) > color_tolerance):
+                    return False
+                
+                # Check metalness
+                if c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS in mat:
+                    existing_metalness = mat[c4d.REDSHIFT_SHADER_OPENPBR_BASE_METALNESS]
+                else:
+                    # Default to 0 if property doesn't exist
+                    existing_metalness = 0.0
+                
+                target_metalness = props['metalness']
+                if abs(existing_metalness - target_metalness) > property_tolerance:
+                    return False
+                
+                # Check roughness
+                if c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS in mat:
+                    existing_roughness = mat[c4d.REDSHIFT_SHADER_OPENPBR_SPECULAR_ROUGHNESS]
+                else:
+                    existing_roughness = 0.5  # Default roughness
+                
+                target_roughness = props['roughness']
+                if abs(existing_roughness - target_roughness) > property_tolerance:
+                    return False
+                
+                return True
+            except:
+                # If Redshift comparison fails, fall back to basic comparison
+                pass
+        
+        # Default to standard Cinema 4D material comparison
         # Check base color
-        existing_color = mat[c4d.MATERIAL_COLOR_COLOR]
+        try:
+            existing_color = mat[c4d.MATERIAL_COLOR_COLOR]
+        except:
+            return False  # Can't access required property
+            
         target_color = props['base_color']
         if (abs(existing_color.x - target_color.x) > color_tolerance or
             abs(existing_color.y - target_color.y) > color_tolerance or
             abs(existing_color.z - target_color.z) > color_tolerance):
             return False
         
-        # Check if reflection is enabled
-        if not mat[c4d.MATERIAL_USE_REFLECTION]:
-            return False
-        
-        # Check reflectance layer
-        layer = mat.GetReflectionLayerIndex(0)
-        if not layer:
-            return False
-        
-        layer_id = layer.GetDataID()
-        
-        # Check roughness with lenient tolerance
+        # For standard materials, check reflection
         try:
-            existing_roughness = mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS]
-            if abs(existing_roughness - props['roughness']) > property_tolerance:
+            if not mat[c4d.MATERIAL_USE_REFLECTION]:
                 return False
         except:
-            pass  # If we can't check roughness, continue
+            pass  # Continue even if we can't check reflection setting
         
-        # Check metalness (approximated by fresnel mode and color)
+        # For standard materials
         try:
-            fresnel_mode = mat[layer_id + c4d.REFLECTION_LAYER_FRESNEL_MODE]
-            is_metal = (fresnel_mode == c4d.REFLECTION_FRESNEL_CONDUCTOR)
-            target_is_metal = (props['metalness'] > 0.5)
-            
-            if is_metal != target_is_metal:
-                return False
+            # Check reflectance layer
+            layer = mat.GetReflectionLayerIndex(0)
+            if not layer:
+                # If no reflection layer, try to check if we can create one or make a basic assumption
+                pass
+            else:
+                layer_id = layer.GetDataID()
+                
+                # Check roughness with lenient tolerance
+                try:
+                    existing_roughness = mat[layer_id + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS]
+                    if abs(existing_roughness - props['roughness']) > property_tolerance:
+                        return False
+                except:
+                    pass  # If we can't check roughness, continue
+                
+                # Check metalness (approximated by fresnel mode and color)
+                try:
+                    fresnel_mode = mat[layer_id + c4d.REFLECTION_LAYER_FRESNEL_MODE]
+                    is_metal = (fresnel_mode == c4d.REFLECTION_FRESNEL_CONDUCTOR)
+                    target_is_metal = (props['metalness'] > 0.5)
+                    
+                    if is_metal != target_is_metal:
+                        return False
+                except:
+                    pass  # If we can't check fresnel mode, continue
         except:
-            pass  # If we can't check fresnel mode, continue
+            pass  # If reflection layer checks fail, continue with basic checks
         
         # All properties are similar enough!
         return True
@@ -1215,7 +1397,7 @@ class Cinema4DImporter:
                 self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc, jt_transform)
             else:
                 # Default: load geometry and create instances
-                self._process_geometry_loading(jt_full_path, jt_transform, material_properties, null_obj, doc)
+                self._process_geometry_loading(jt_full_path, jt_transform, material_properties, null_obj, doc, mode)
         
         # Process children
         for child_id in instance_data.get('children', []):
@@ -1234,7 +1416,7 @@ class Cinema4DImporter:
         
         # Create material from properties
         if material_properties:
-            material = self.material_manager.create_material(material_properties, doc)
+            material = self.material_manager.create_material(material_properties, doc, "material_extraction")
             if material:
                 self.total_materials += 1
         
@@ -1343,7 +1525,7 @@ class Cinema4DImporter:
         # Process materials: replace with closest matching materials from the active document
         if material_properties and len(root_objects) > 0:
             for obj in root_objects:
-                self._replace_materials_with_closest_match(obj, material_properties, doc)
+                self._replace_materials_with_closest_match(obj, material_properties, doc, "create_redshift_proxies")
         
         # Use the working fallback method which exports using format ID 1038650
         # This will export the current document (which now contains only the JT geometry with replaced materials) as a proxy file
@@ -1381,7 +1563,7 @@ class Cinema4DImporter:
             self.geometry_manager._perform_incremental_save(doc)
             self.files_since_last_save = 0  # Reset counter
     
-    def _replace_materials_with_closest_match(self, obj, material_properties, doc):
+    def _replace_materials_with_closest_match(self, obj, material_properties, doc, mode="assembly"):
         """Replace materials with closest matching material from the current scene"""
         # First, try to find a material with identical name
         material_name = self.material_manager._generate_material_name(material_properties)
@@ -1415,7 +1597,7 @@ class Cinema4DImporter:
             self.logger.log(f"→ Applied closest matching material: {closest_mat.GetName()}")
         else:
             # Create new material from properties
-            new_mat = self.material_manager.create_material(material_properties, doc)
+            new_mat = self.material_manager.create_material(material_properties, doc, mode)
             if new_mat:
                 self._apply_material_to_object_with_new_material(obj, new_mat)
                 self.logger.log(f"→ Created new material: {new_mat.GetName()}")
@@ -1460,7 +1642,7 @@ class Cinema4DImporter:
         # Insert tag on the object
         obj.InsertTag(tag)
     
-    def _process_geometry_loading(self, jt_path, jt_transform, material_properties, parent_obj, doc):
+    def _process_geometry_loading(self, jt_path, jt_transform, material_properties, parent_obj, doc, mode="assembly"):
         """Process geometry loading with instances"""
         # Get the geometry (cached or newly loaded)
         geometry_obj = self.geometry_manager.get_cached_geometry(jt_path, doc)
@@ -1484,7 +1666,7 @@ class Cinema4DImporter:
         
         # Create and apply material if material properties exist
         if material_properties:
-            material = self.material_manager.create_material(material_properties, doc)
+            material = self.material_manager.create_material(material_properties, doc, mode)
             if material:
                 self._apply_material_to_geometry(instance_obj, material, doc)
                 self.total_materials += 1

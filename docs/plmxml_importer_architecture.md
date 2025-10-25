@@ -1,5 +1,5 @@
 # PLMXML Assembly Importer Plugin - Technical Architecture Document
-**Version:** 3.12
+**Version:** 3.13
 **Git Commit:** $Format:%H$
 
 ## 1. System Overview
@@ -331,6 +331,9 @@ Scene Structure:
 - **Method Signatures**: Fixed method signature inconsistencies in material property inference calls
 - **Redshift Proxy Creation**: Added missing method implementation for Redshift proxy creation workflow
 - **Material Reuse Tracking**: Enhanced material reuse tracking in Cinema 4D document with better logging
+
+### 10.6 Step 1 Enhancement 
+- **Redshift OpenPBR Material Creation**: Step 1 (Material Extraction) now creates Redshift OpenPBR materials instead of standard Cinema 4D materials, providing better compatibility with Redshift rendering pipeline when extracting materials
 
 ## 11. Step 1 and Step 2 Implementation Improvements
 ### 11.1 Assembly-Free Processing in Steps 1 and 2

@@ -1,5 +1,5 @@
 # Product Brief
-**Version:** 3.12
+**Version:** 3.13
 **Git Commit:** $Format:%H$
 
 Complete Specification for PLMXML Assembly Importer Plugin for Cinema 4D 2025
@@ -44,6 +44,7 @@ Material System
 * Enhanced progress tracking with detailed file processing information in Steps 1 and 2
 * Improved error handling with graceful fallbacks and better diagnostics
 * Fixed method signature inconsistencies in material property inference calls
+* **Step 1 Enhancement**: Create Redshift OpenPBR materials instead of standard Cinema 4D materials when extracting materials in Step 1, providing better compatibility with Redshift rendering pipeline
 
 Geometry Handling
 * Load JT files using Cinema 4D's native JT import functionality
