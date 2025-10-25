@@ -12,7 +12,7 @@ Installation & Registration
 * Plugin ID: 1054321
 * Plugin Name: "PLMXML Assembly Importer"
 * Menu Location: Extensions → User Scripts → PLMXML Assembly Importer
-* Version: 3.11
+* Version: 3.13
 Dependencies
 * Cinema 4D 2025 or later
 * Redshift for Cinema 4D (optional, for proxy modes)
@@ -190,3 +190,26 @@ Support
 * Clear error messages and recovery suggestions
 * GitHub issue tracking for bug reports
 * Documentation updates for new features
+
+## 8. VERSION INFORMATION
+- **Current Version**: 3.13
+- **Major Improvements**: Material verification and reuse, keyword detection, API compatibility fixes, dialog improvements, Redshift proxy compilation workflow
+- **Version 3.2 Updates**: Step-by-step workflow with 3 modes (Material Extraction Only, Create Redshift Proxies Only, Build Assembly Tree Only), auto-detection of PLMXML file from C4D document directory, updated UI with swapped OK/Cancel buttons, immediate dialog closure on OK press
+- **Version 3.3 Updates**: Fixed path resolution to correctly check directory containing C4D file for .plmxml files (not parent directory)
+- **Version 3.4 Updates**: Removed PLMXML file input field and browse button from dialog, swapped OK and Cancel button positions to follow standard UI patterns, auto-detection of PLMXML file from current C4D file directory
+- **Version 3.5 Updates**: Renamed UI options to Step 1: Extract materials, Step 2: Create Redshift Proxies, Step 3: Build assembly for clarity; removed Full Assembly Import option
+- **Version 3.6 Updates**: Implemented global working directory variable for simplified file operations; all files (PLMXML, JT, RS proxies, logs) now use single directory approach eliminating complex path arithmetic
+- **Version 3.7 Updates**: Enhanced dialog closure using threading to ensure proper closure before import process starts; simplified Redshift proxy export to use only working format ID 1038650; ensure temporary documents are empty before loading JT files in Step 2 to prevent conflicts
+- **Version 3.8 Updates**: Step 2 no longer builds assembly tree - focuses solely on creating Redshift proxy files; removes all temporary document usage in Step 2, using active document instead; implements material replacement using active document materials
+- **Version 3.9 Updates**: Improved material property inference algorithms with better German/English keyword matching; enhanced material creation with proper PBR workflow setup; better material grouping and deduplication with lenient tolerance matching; updated Cinema 4D standard material creation with GGX distribution and proper fresnel modes; added material reuse functionality to check for existing materials with same name in document
+- **Version 3.10 Updates**: Enhanced Step 1 material extraction to check for existing materials with same name in Cinema 4D document and reuse them instead of creating duplicates; improved material deduplication to reduce material proliferation in complex assemblies; updated both Steps 1 and 2 to work exclusively with active document and avoid assembly tree creation entirely; Steps 1 and 2 now process all JT files directly without building any assembly hierarchy; assembly structures are only built in Step 3 (compile_redshift_proxies mode)
+- **Version 3.11 Updates**: Fixed Step 2 to implement missing _process_all_jt_files_for_proxy_creation method that was causing AttributeError; enhanced progress tracking in Steps 1 and 2 with detailed file processing information; improved error handling with graceful fallbacks; fixed method signature inconsistencies; added missing method implementation for Redshift proxy creation workflow; ensured proper material reuse tracking in Cinema 4D document
+- **Version 3.12 Updates**: Updated all documentation to reflect current implementation state, improved threading implementation for UI responsiveness, enhanced error logging with additional diagnostic information, refined material property matching algorithms with improved accuracy for complex material types
+- **Version 3.13 Updates**: Enhanced Step 1 material extraction to create Redshift OpenPBR materials instead of standard Cinema 4D materials, providing better compatibility with Redshift rendering pipeline and improved PBR workflow consistency
+
+### 8.1 Version Synchronization
+- **Version Consistency**: The version number in the main plugin file (plugins/PLMXMLImporter/PLMXMLImporter.pyp) should be kept in sync with the version numbers in all documentation files:
+  - docs/product_brief.md
+  - docs/plmxml_importer_architecture.md  
+  - docs/plmxml_plmxml_importer_prd.md
+- **Synchronization Process**: When updating the version in any file, ensure all related files are updated to maintain consistency
