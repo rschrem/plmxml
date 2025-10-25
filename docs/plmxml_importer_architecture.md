@@ -1,5 +1,5 @@
 # PLMXML Assembly Importer Plugin - Technical Architecture Document
-**Version:** 3.10
+**Version:** 3.11
 **Git Commit:** $Format:%H$
 
 ## 1. System Overview
@@ -321,3 +321,16 @@ Scene Structure:
 - Check for existing materials with same name in Cinema 4D document before creating new ones
 - Reuse existing materials to avoid duplication and maintain consistency
 - Improve workflow efficiency by leveraging existing document materials
+
+## 11. Step 1 and Step 2 Implementation Improvements
+### 11.1 Assembly-Free Processing in Steps 1 and 2
+- Step 1 (Material Extraction Only) processes all JT files directly without building any assembly structures
+- Step 2 (Create Redshift Proxies Only) processes all JT files directly without building any assembly structures
+- Both steps work exclusively with the currently active Cinema 4D document
+- Eliminated all temporary document creation in Steps 1 and 2 to improve memory usage
+- Direct file iteration without hierarchy traversal for improved performance
+
+### 11.2 Assembly Building Isolation
+- Assembly structures are only built in Step 3 (Compile Assembly Tree Only) as intended
+- Proper separation of concerns between material/proxy creation (Steps 1&2) and assembly building (Step 3)
+- Reduced processing overhead by avoiding unnecessary assembly tree construction in Steps 1 and 2

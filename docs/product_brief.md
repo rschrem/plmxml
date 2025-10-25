@@ -1,5 +1,5 @@
 # Product Brief
-**Version:** 3.10
+**Version:** 3.11
 **Git Commit:** $Format:%H$
 
 Complete Specification for PLMXML Assembly Importer Plugin for Cinema 4D 2025
@@ -12,7 +12,7 @@ Installation & Registration
 * Plugin ID: 1054321
 * Plugin Name: "PLMXML Assembly Importer"
 * Menu Location: Extensions → User Scripts → PLMXML Assembly Importer
-* Version: 3.8
+* Version: 3.11
 Dependencies
 * Cinema 4D 2025 or later
 * Redshift for Cinema 4D (optional, for proxy modes)
@@ -146,9 +146,9 @@ Data Flow
 1. User selects import mode through dialog (PLMXML file auto-detected from working directory, initialized to current C4D document directory)
 2. Plugin parses PLMXML file to extract hierarchy and material data
 3. Based on selected mode, process JT files accordingly:
-   * Step 1: Extract materials: Extract materials only, remove geometry
-   * Step 2: Create Redshift Proxies: Load JT, replace materials, export as .rs
-   * Step 3: Build assembly: Create null hierarchy, check for .rs files
+   * Step 1: Extract materials: Extract materials only, remove geometry, process JT files directly without building hierarchy
+   * Step 2: Create Redshift Proxies: Load JT, replace materials, export as .rs, process JT files directly without building hierarchy
+   * Step 3: Build assembly: Create null hierarchy, check for .rs files, assembly structures only built in Step 3
 4. Log detailed statistics and progress information
 5. Save document incrementally to prevent data loss
 

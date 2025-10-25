@@ -3,7 +3,7 @@
 ## 1. Executive Summary
 
 **Product Name:** PLMXML Assembly Importer Plugin for Cinema 4D 2025
-**Version:** 3.10
+**Version:** 3.11
 **Project ID:** 1054321
 **Project Owner:** [Your Name]
 **Date:** [Current Date]
@@ -256,6 +256,13 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Intelligent Material Grouping**: Advanced material deduplication with lenient tolerance matching to reduce material proliferation
 - **Improved Material Properties**: More accurate base colors, roughness values, and other PBR properties based on material type
 - **Material Reuse**: Check for existing materials with the same name in the Cinema 4D document and reuse them instead of creating duplicates
+### 8.11 Step 1 and Step 2 Implementation Improvements
+- **Step 1 Assembly-Free Processing**: Step 1 (Material Extraction Only) now processes all JT files directly without building any assembly tree structure
+- **Step 2 Assembly-Free Processing**: Step 2 (Create Redshift Proxies Only) now processes all JT files directly without building any assembly tree structure
+- **Active Document Usage**: Both Steps 1 and 2 work exclusively with the currently active Cinema 4D document
+- **No Temporary Documents**: Eliminated all temporary document creation in Steps 1 and 2 to improve memory usage
+- **Direct File Processing**: Both steps iterate through all JT files directly and process them without hierarchy traversal
+- **Assembly Building Isolation**: Assembly structures are only built in Step 3 (Compile Assembly Tree Only mode) as intended
 
 ### 8.10 Version Information
 - **Current Version**: 3.1 (updated from initial 3.0)
@@ -268,4 +275,4 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Version 3.7 Updates**: Enhanced dialog closure using threading to ensure proper closure before import process starts; simplified Redshift proxy export to use only working format ID 1038650; ensure temporary documents are empty before loading JT files in Step 2 to prevent conflicts
 - **Version 3.8 Updates**: Step 2 no longer builds assembly tree - focuses solely on creating Redshift proxy files; removes all temporary document usage in Step 2, using active document instead; implements material replacement using active document materials
 - **Version 3.9 Updates**: Improved material property inference algorithms with better German/English keyword matching; enhanced material creation with proper PBR workflow setup; better material grouping and deduplication with lenient tolerance matching; updated Cinema 4D standard material creation with GGX distribution and proper fresnel modes; added material reuse functionality to check for existing materials with same name in document
-- **Version 3.10 Updates**: Enhanced Step 1 material extraction to check for existing materials with same name in Cinema 4D document and reuse them instead of creating duplicates; improved material deduplication to reduce material proliferation in complex assemblies
+- **Version 3.10 Updates**: Enhanced Step 1 material extraction to check for existing materials with same name in Cinema 4D document and reuse them instead of creating duplicates; improved material deduplication to reduce material proliferation in complex assemblies; updated both Steps 1 and 2 to work exclusively with active document and avoid assembly tree creation entirely; Steps 1 and 2 now process all JT files directly without building any assembly hierarchy; assembly structures are only built in Step 3 (compile_redshift_proxies mode)
