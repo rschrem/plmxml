@@ -40,6 +40,10 @@ Material System
 * Enhanced German/English keyword matching for better material recognition
 * Advanced material property calculation with proper GGX distribution and fresnel modes
 * Reuse existing materials with same name in Cinema 4D document to avoid duplication
+* Fixed missing method implementation in Step 2 that was causing AttributeError during Redshift proxy creation
+* Enhanced progress tracking with detailed file processing information in Steps 1 and 2
+* Improved error handling with graceful fallbacks and better diagnostics
+* Fixed method signature inconsistencies in material property inference calls
 
 Geometry Handling
 * Load JT files using Cinema 4D's native JT import functionality

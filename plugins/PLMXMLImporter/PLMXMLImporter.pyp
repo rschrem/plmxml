@@ -1107,6 +1107,40 @@ class Cinema4DImporter:
                 
                 # Process this JT file for material extraction directly
                 self._process_material_extraction(jt_full_path, material_properties, doc)
+
+    def _process_all_jt_files_for_proxy_creation(self, plmxml_parser, doc):
+        """Process all JT files directly for proxy creation without building assembly tree - Step 2 only"""
+        # Iterate through all instances and parts to collect all unique JT files
+        processed_jt_files = set()  # Keep track of processed files to avoid duplicates
+        
+        # Process all instances
+        for instance_id, instance_data in plmxml_parser.instances.items():
+            part_ref = instance_data['part_ref']
+            
+            # Skip if part reference is invalid
+            if not part_ref or part_ref not in plmxml_parser.parts:
+                continue
+            
+            part_data = plmxml_parser.parts[part_ref]
+            
+            # Process all JT files for this part
+            for jt_data in part_data.get('jt_files', []):
+                jt_file = jt_data['file']
+                
+                # Skip if we've already processed this JT file
+                if jt_file in processed_jt_files:
+                    continue
+                
+                processed_jt_files.add(jt_file)
+                
+                # Get full path to JT file (relative to working directory)
+                jt_full_path = os.path.join(self.working_directory, jt_file)
+                
+                # Get material properties from the JT data
+                material_properties = jt_data.get('material_properties', {})
+                
+                # Process this JT file for proxy creation directly
+                self._process_redshift_proxy_creation(jt_full_path, None, material_properties, doc)
     
     def _count_total_files(self, plmxml_parser, mode):
         """Count total files to be processed based on mode"""
