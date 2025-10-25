@@ -1012,12 +1012,17 @@ class Cinema4DImporter:
             self.logger.log(f"📊 Total .rs files to check: {self.total_rs_files}")
         self.logger.log("="*80)
         
-        # Special handling for Step 2 (create_redshift_proxies) - no assembly tree building
-        if mode == "create_redshift_proxies":
+        # Special handling for Steps 1 and 2 - no assembly tree building
+        if mode == "material_extraction":
+            # Process all JT files directly without building assembly tree for material extraction
+            self._process_all_jt_files_for_material_extraction(plmxml_parser, doc)
+            return True  # Early return, no need to continue with assembly building
+        elif mode == "create_redshift_proxies":
             # Process all JT files directly without building assembly tree
             self._process_all_jt_files_for_proxy_creation(plmxml_parser, doc)
+            return True  # Early return, no need to continue with assembly building
         else:
-            # Normal assembly building for other modes
+            # Normal assembly building for other modes (compile_redshift_proxies)
             # Get root references for the hierarchy
             root_refs = plmxml_parser.build_hierarchy()
             
@@ -1069,8 +1074,8 @@ class Cinema4DImporter:
         
         return True
     
-    def _process_all_jt_files_for_proxy_creation(self, plmxml_parser, doc):
-        """Process all JT files directly for proxy creation without building assembly tree - Step 2 only"""
+    def _process_all_jt_files_for_material_extraction(self, plmxml_parser, doc):
+        """Process all JT files directly for material extraction without building assembly tree - Step 1 only"""
         # Iterate through all instances and parts to collect all unique JT files
         processed_jt_files = set()  # Keep track of processed files to avoid duplicates
         
@@ -1100,8 +1105,8 @@ class Cinema4DImporter:
                 # Get material properties from the JT data
                 material_properties = jt_data.get('material_properties', {})
                 
-                # Process this JT file for proxy creation directly
-                self._process_redshift_proxy_creation(jt_full_path, None, material_properties, doc)
+                # Process this JT file for material extraction directly
+                self._process_material_extraction(jt_full_path, material_properties, doc)
     
     def _count_total_files(self, plmxml_parser, mode):
         """Count total files to be processed based on mode"""
