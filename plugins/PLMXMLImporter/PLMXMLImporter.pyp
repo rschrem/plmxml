@@ -322,31 +322,26 @@ class Cinema4DMaterialManager:
         # Get material properties using improved inference algorithm
         props = MaterialPropertyInference.infer_material_properties(material_data, self.logger)
         
-        # Create a new material based on the mode
-        if is_step1 and REDSHIFT_AVAILABLE:
+        # For Step 1, Redshift must be available
+        if is_step1:
+            if not REDSHIFT_AVAILABLE:
+                self.logger.log("❌ Redshift is not available, Step 1 cannot proceed", "ERROR")
+                return None  # This will cause the process to stop
             # Create Redshift OpenPBR material for Step 1
             mat = self._create_redshift_openpbr_material(mat_name, props, doc)
             if mat:
                 self.logger.log(f"🎨 Creating Redshift OpenPBR material: {mat_name} (Step 1)")
             else:
-                # If Redshift material creation failed, fall back to standard material
-                self.logger.log(f"🎨 Redshift material creation failed, falling back to standard material: {mat_name} (Step 1)")
-                mat = self._create_standard_material(material_data.get('mat_group', ''), 
-                                                   material_data.get('mat_standard', ''),
-                                                   material_data.get('mat_number', ''),
-                                                   material_data.get('mat_term', ''),
-                                                   props)
+                self.logger.log(f"❌ Failed to create Redshift OpenPBR material: {mat_name} (Step 1)", "ERROR")
+                return None  # This will cause the process to stop
         else:
-            # Create standard Cinema 4D material for other modes (or when Redshift not available in Step 1)
+            # Create standard Cinema 4D material for other modes
             mat = self._create_standard_material(material_data.get('mat_group', ''), 
                                                material_data.get('mat_standard', ''),
                                                material_data.get('mat_number', ''),
                                                material_data.get('mat_term', ''),
                                                props)
-            if is_step1 and not REDSHIFT_AVAILABLE:
-                self.logger.log(f"🎨 Redshift not available, creating standard Cinema 4D material for Step 1: {mat_name}")
-            else:
-                self.logger.log(f"🎨 Creating standard Cinema 4D material: {mat_name} (Mode: {mode})")
+            self.logger.log(f"🎨 Creating standard Cinema 4D material: {mat_name} (Mode: {mode})")
         
         if not mat:
             self.logger.log("✗ Failed to create new material", "ERROR")
@@ -477,18 +472,13 @@ class Cinema4DMaterialManager:
         """
         # Check for Redshift availability and constants
         if not REDSHIFT_AVAILABLE:
-            self.logger.log("⚠ Redshift not available, cannot create OpenPBR material", "WARNING")
+            self.logger.log("❌ Redshift is not available, cannot create OpenPBR material", "ERROR")
             return None
             
         # Check if Redshift constants exist (sometimes they exist but plugin is not fully available)
         if not hasattr(c4d, 'Mredshift'):
-            self.logger.log("⚠ Redshift constants not available, using standard material instead", "WARNING")
-            # Fallback to creating a standard material when Redshift isn't available
-            material_data = {'mat_group': name.split('_')[0] if '_' in name else name, 'mat_term': name.split('_')[1] if name.count('_') >= 1 else '', 'mat_number': name.split('_')[2] if name.count('_') >= 2 else ''}
-            return self._create_standard_material(material_data.get('mat_group', ''), 
-                                               material_data.get('mat_term', ''),
-                                               material_data.get('mat_number', ''),
-                                               '', props)
+            self.logger.log("❌ Redshift Mredshift constant not available", "ERROR")
+            return None
             
         # Create the Redshift material
         mat = c4d.BaseMaterial(c4d.Mredshift)
@@ -1210,6 +1200,12 @@ class Cinema4DImporter:
     
     def build_hierarchy(self, plmxml_parser, doc, mode="assembly", plmxml_file_path=None, working_directory=None):
         """Build the Cinema 4D scene hierarchy from parsed data"""
+        # For Step 1 (material extraction), check if Redshift is available
+        if mode == "material_extraction" and not REDSHIFT_AVAILABLE:
+            self.logger.log("❌ Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.", "ERROR")
+            c4d.gui.MessageDialog("Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.")
+            return False  # Return False to indicate failure
+        
         # Reset unknown keywords tracking for this import
         MaterialPropertyInference.unknown_keywords.clear()
         
@@ -1297,6 +1293,12 @@ class Cinema4DImporter:
     
     def _process_all_jt_files_for_material_extraction(self, plmxml_parser, doc):
         """Process all JT files directly for material extraction without building assembly tree - Step 1 only"""
+        # Check if Redshift is available - this is mandatory for Step 1
+        if not REDSHIFT_AVAILABLE:
+            self.logger.log(f"❌ Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.", "ERROR")
+            c4d.gui.MessageDialog("Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.")
+            return  # Exit early if Redshift is not available
+        
         # Iterate through all instances and parts to collect all unique JT files
         processed_jt_files = set()  # Keep track of processed files to avoid duplicates
         
@@ -1451,6 +1453,12 @@ class Cinema4DImporter:
     
     def _process_material_extraction(self, jt_path, material_properties, doc):
         """Process material extraction only - no geometry loading"""
+        # Check if Redshift is available - this is mandatory for Step 1
+        if not REDSHIFT_AVAILABLE:
+            self.logger.log(f"❌ Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.", "ERROR")
+            c4d.gui.MessageDialog("Redshift is not available. Step 1 (Material Extraction) requires Redshift to function.")
+            return
+        
         self.logger.log(f"🎨 Extracting materials from: {os.path.basename(jt_path)}")
         
         # Create material from properties
@@ -1458,6 +1466,10 @@ class Cinema4DImporter:
             material = self.material_manager.create_material(material_properties, doc, "material_extraction")
             if material:
                 self.total_materials += 1
+            else:
+                # If material creation failed (due to Redshift unavailability), return early
+                self.logger.log(f"❌ Material creation failed, stopping Step 1 execution", "ERROR")
+                return
         
         self.total_files_processed += 1
         
