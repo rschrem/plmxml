@@ -280,4 +280,11 @@ Based on the complexity of the requirements, this is a Level 3-4 project requiri
 - **Version 3.11 Updates**: Fixed Step 2 to implement missing _process_all_jt_files_for_proxy_creation method that was causing AttributeError; enhanced progress tracking in Steps 1 and 2 with detailed file processing information; improved error handling with graceful fallbacks; fixed method signature inconsistencies; added missing method implementation for Redshift proxy creation workflow; ensured proper material reuse tracking in Cinema 4D document
 - **Version 3.12 Updates**: Updated all documentation to reflect current implementation state, improved threading implementation for UI responsiveness, enhanced error logging with additional diagnostic information, refined material property matching algorithms with improved accuracy for complex material types
 - **Version 3.13 Updates**: Enhanced Step 1 material extraction to create Redshift OpenPBR materials instead of standard Cinema 4D materials, providing better compatibility with Redshift rendering pipeline and improved PBR workflow consistency
+
+### 8.11 Version Synchronization
+- **Version Consistency**: The version number in the main plugin file (plugins/PLMXMLImporter/PLMXMLImporter.pyp) should be kept in sync with the version numbers in all documentation files:
+  - docs/product_brief.md
+  - docs/plmxml_importer_architecture.md  
+  - docs/plmxml_plmxml_importer_prd.md
+- **Synchronization Process**: When updating the version in any file, ensure all related files are updated to maintain consistency
 - **Version 3.12 Updates**: Updated all documentation to reflect current implementation state, improved threading implementation for UI responsiveness, enhanced error logging with additional diagnostic information, refined material property matching algorithms with improved accuracy for complex material types

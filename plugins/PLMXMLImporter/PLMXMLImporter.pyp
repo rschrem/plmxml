@@ -1,7 +1,9 @@
 """
 PLMXML Assembly Importer Plugin for Cinema 4D 2025
 Plugin ID: 1054321
-Version: 3.1
+Version: 3.13
+# NOTE: Keep this version in sync with the version in documentation files (docs/product_brief.md, 
+# docs/plmxml_importer_architecture.md, docs/plmxml_plmxml_importer_prd.md)
 Git Commit: $Format:%H$
 """
 
