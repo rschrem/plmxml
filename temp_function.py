@@ -1,0 +1,97 @@
+    def _create_redshift_openpbr_material(self, mat_name, props, doc):
+        """Create a Redshift Standard Material"""
+        
+        # Before creating a new material, check if one with the same name already exists
+        # This is a safeguard to prevent duplicate materials
+        existing_mat = doc.GetFirstMaterial()
+        while existing_mat:
+            if existing_mat.GetName() == mat_name:
+                # Material with the same name already exists, return it
+                self.logger.log(f"⚠ Material with name '{mat_name}' already exists, returning existing material")
+                return existing_mat
+            existing_mat = existing_mat.GetNext()
+        
+        # Create material
+        mat = c4d.BaseMaterial(c4d.Mmaterial)
+        mat.SetName(mat_name)
+        
+        # Get node material and create graph
+        nodeMaterial = mat.GetNodeMaterialReference()
+        REDSHIFT_NODESPACE_ID = maxon.Id("com.redshift3d.redshift4c4d.class.nodespace")
+        graph = nodeMaterial.CreateEmptyGraph(REDSHIFT_NODESPACE_ID)
+        
+        if graph.IsNullValue():
+            raise RuntimeError(f"Failed to create Redshift graph")
+        
+        # Insert material first
+        doc.InsertMaterial(mat)
+        
+        try:
+            # Use the most common/reliable node: Standard Material
+            with graph.BeginTransaction() as transaction:
+                # These IDs are confirmed to work in most C4D 2025 installations
+                outputNode = graph.AddChild(
+                    maxon.Id(), 
+                    maxon.Id("com.redshift3d.redshift4c4d.node.output")
+                )
+                materialNode = graph.AddChild(
+                    maxon.Id(), 
+                    maxon.Id("com.redshift3d.redshift4c4d.nodes.core.standardmaterial")
+                )
+                
+                # Connect them
+                outPort = materialNode.GetOutputs().FindChild(
+                    "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.outcolor")
+                surfacePort = outputNode.GetInputs().FindChild(
+                    "com.redshift3d.redshift4c4d.node.output.surface")
+                
+                if outPort and surfacePort:
+                    outPort.Connect(surfacePort)
+                
+                # Apply PBR properties
+                if props:
+                    # Base Color
+                    if 'base_color' in props:
+                        colorPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.base_color")
+                        if colorPort:
+                            color = props['base_color']
+                            if isinstance(color, (list, tuple)) and len(color) >= 3:
+                                colorPort.SetPortValue(maxon.Color(color[0], color[1], color[2]))
+                    
+                    # Metalness (0.0 for dielectric, 1.0 for metal)
+                    if 'metalness' in props:
+                        metalnessPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.metalness")
+                        if metalnessPort:
+                            metalnessPort.SetPortValue(float(props['metalness']))
+                        
+                    # Specular roughness
+                    if 'roughness' in props:
+                        roughnessPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.refl_roughness")
+                        if roughnessPort:
+                            roughnessPort.SetPortValue(float(props['roughness']))
+                    
+                    # Specular IOR
+                    if 'ior' in props:
+                        iorPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.refl_ior")
+                        if iorPort:
+                            iorPort.SetPortValue(float(props['ior']))
+                            
+                    # Handle transparency for glass materials
+                    if 'transparency' in props and props['transparency'] > 0.1:
+                        transparencyPort = materialNode.GetInputs().FindChild(
+                            "com.redshift3d.redshift4c4d.nodes.core.standardmaterial.refr_weight")
+                        if transparencyPort:
+                            transparencyPort.SetPortValue(float(props['transparency']))
+                
+                transaction.Commit()
+        
+        except Exception as e:
+            self.logger.log(f"ERROR creating Redshift material nodes: {str(e)}", "ERROR")
+            return None
+
+        c4d.EventAdd()
+        return mat

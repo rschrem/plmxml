@@ -2365,80 +2365,64 @@ class Cinema4DImporter:
         self.logger.log(f"📁 JT path: {jt_path}")
         self.logger.log(f"📁 Self.plmxml_file_path: {getattr(self, 'plmxml_file_path', 'NOT SET')}")
         
-        # If proxy doesn't exist, also log the directory contents for debugging
-        if not proxy_exists:
-            self.logger.log(f"📁 Directory contents of {self.working_directory}:")
-            try:
-                dir_contents = os.listdir(self.working_directory)
-                rs_files = [f for f in dir_contents if f.endswith('.rs')]
-                self.logger.log(f"📁 Found .rs files: {rs_files}")
-                # Also log all files for debugging purposes
-                self.logger.log(f"📁 All files in directory ({len(dir_contents)} total): {[f for f in dir_contents if not f.startswith('.')][:20]}")  # Limit to first 20 non-hidden files
-            except Exception as e:
-                self.logger.log(f"⚠ Exception listing directory contents: {str(e)}", "WARNING")
-                
-            # Log current working directory and document path for additional debugging
-            self.logger.log(f"📁 Current working directory: {os.getcwd()}")
-            self.logger.log(f"📁 Document path: {doc.GetDocumentPath() if doc.GetDocumentPath() else 'Not set'}")
-        else:
-            self.logger.log(f"✅ Proxy file found: {proxy_path}")
-        
         # Create proxy object (or placeholder if proxy doesn't exist) as a child of the JT null object
         if proxy_exists:
-            # Since Redshift is built into Cinema 4D 2025, create the proxy object directly
-            # Create Redshift proxy object using the plugin ID
-            proxy_obj = c4d.BaseObject(1038649)  # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
+            # Create a new Redshift Proxy object
+            proxy_obj = c4d.BaseObject(1038649) # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
             if proxy_obj:
                 # Set the proxy file path (just the filename, not full path, as per requirements)
                 proxy_filename_only = os.path.basename(proxy_path)
                 
-                # Set the proxy's name to the filename
-                proxy_obj.SetName(proxy_filename)
+                proxy_obj.SetName(proxy_filename_only)
+
+                doc.InsertObject(proxy_obj)
+
+                # Add User Data property "ProxyName" directly to the object
+                bc = c4d.GetCustomDatatypeDefault(c4d.DTYPE_STRING)
+                bc[c4d.DESC_NAME] = "ProxyName"
+                bc[c4d.DESC_SHORT_NAME] = "ProxyName"
+                bc[c4d.DESC_DEFAULT] = proxy_filename_only
+
+                user_data_id = proxy_obj.AddUserData(bc)
+
+                # Set the ProxyName value
+                proxy_obj[user_data_id] = proxy_filename_only
+
+                # Create XPresso Tag
+                xpresso_tag = c4d.BaseTag(c4d.Texpresso)
+                proxy_obj.InsertTag(xpresso_tag)
+                xpresso_tag.SetName("XPresso")
+
+                # Get the XPresso node master
+                node_master = xpresso_tag.GetNodeMaster()
+
+                # Create Object node for the Redshift Proxy
+                proxy_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=100)
+                proxy_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
+
+                # Create Object node for User Data access
+                userdata_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=250)
+                userdata_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
+
+                # Add output port for ProxyName from user data node
+                userdata_output = userdata_node.AddPort(c4d.GV_PORT_OUTPUT, user_data_id)
+
+                # Create the DescID for the File parameter
+                file_desc_id = c4d.DescID(c4d.DescLevel(10000, 1036765, 1038649))
+
+                # Add input port for File parameter on Redshift Proxy node
+                proxy_input = proxy_node.AddPort(c4d.GV_PORT_INPUT, file_desc_id)
+
+                if proxy_input is None:
+                    gui.MessageDialog("Could not create port for File parameter.")
+
+                # Connect the ports
+                userdata_output.Connect(proxy_input)
+                print(f"Successfully created Redshift Proxy for: {filename}")
                 
-                # Set the proxy file path using the provided template function
-                # Use just the filename (no path) as required in Step 3 requirements
-                proxy_filename_only = os.path.basename(proxy_path)
-                
-                # Use the provided template function to set the file path
-                proxy_setup_success = self._setup_rs_proxy_file_path(proxy_obj, proxy_filename_only)
-                
-                if proxy_setup_success:
-                    self.logger.log(f"✅ Redshift proxy file property set using filename: {proxy_filename_only}", "INFO")
-                else:
-                    self.logger.log(f"⚠ Failed to set Redshift proxy file property using template function", "WARNING")
-                    # Fallback: try the direct parameter approach from product brief
-                    try:
-                        # Create a proper c4d.Filename object - this is what Redshift proxies expect
-                        proxy_file_obj = c4d.Filename(proxy_filename_only)
-                        
-                        # Use the exact parameter ID from the product brief template
-                        PROXY_FILE_PARAM_ID = 2001  # From product brief template
-                        proxy_obj[PROXY_FILE_PARAM_ID] = proxy_file_obj
-                        
-                        self.logger.log(f"✅ Redshift proxy file property set using fallback parameter ID {PROXY_FILE_PARAM_ID}", "INFO")
-                        
-                    except Exception as e:
-                        self.logger.log(f"⚠ Could not set Redshift proxy file property using fallback: {str(e)}", "WARNING")
-                
-                # Optional: Set display mode as mentioned in the product brief template
-                # 0 = Off, 1 = Bounding Box, 2 = Preview, etc.
-                PROXY_DISPLAY_MODE_ID = 2002  # Check exact ID from template
-                if PROXY_DISPLAY_MODE_ID:  # Only set if it exists
-                    try:
-                        proxy_obj[PROXY_DISPLAY_MODE_ID] = 1  # Bounding Box mode
-                        self.logger.log(f"🎨 Redshift proxy display mode set to Bounding Box", "INFO")
-                    except:
-                        self.logger.log(f"🎨 Could not set display mode, using default", "INFO")
-                
-                # Trigger an update to make sure the parameter takes effect
-                proxy_obj.Message(c4d.MSG_UPDATE)
-                
-                doc.InsertObject(proxy_obj)  # Insert into document first
-                proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+                # move node under the JT null object
+                proxy_obj.InsertUnder(jt_null_obj)  
                 self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
-                
-                # Trigger Cinema 4D event update like the sample code
-                c4d.EventAdd()
             else:
                 # If Redshift proxy creation failed, create placeholder cube
                 proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
@@ -2453,7 +2437,7 @@ class Cinema4DImporter:
             proxy_obj.SetName("Placeholder_Cube")
             doc.InsertObject(proxy_obj)  # Insert into document first
             proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
-            self.logger.log(f"🟦 Created placeholder cube for missing proxy: {proxy_filename}")
+            self.logger.log(f"🟦 Created placeholder cube for missing proxy file on disk: {proxy_filename}")
         
         # Create an instance of the JT null object to maintain transforms in the visible hierarchy
         if jt_null_obj:
