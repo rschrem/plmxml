@@ -1994,7 +1994,27 @@ class Cinema4DImporter:
         # Since Redshift is built into Cinema 4D 2025, import is always available
         import redshift
         
-        # Check if file exists
+        # Step 2: Check first whether the .rs already exists. If it exists we do not need to load the jt file.
+        # Determine the output path for the Redshift proxy
+        # Use the working directory, not the active document directory
+        # Use .rs extension as intended for Redshift proxies
+        proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
+        proxy_path = os.path.join(self.working_directory, proxy_filename)
+        
+        # Check if the .rs proxy file already exists in the working directory
+        proxy_exists = os.path.exists(proxy_path)
+        if proxy_exists:
+            self.logger.log(f"ℹ Redshift proxy already exists, skipping creation and JT file load: {proxy_path}")
+            # Even though we skip creation, we still processed the materials as required by Step 2
+            # However, since we're working with a temporary document that doesn't get saved when proxy exists,
+            # the material replacement from this session doesn't persist. That's OK - the existing proxy
+            # should already have the correct materials from when it was originally created.
+            self.total_files_processed += 1
+            return  # Skip export if proxy already exists
+        else:
+            self.logger.log(f"📁 Creating new proxy at: {proxy_path}")
+        
+        # Check if file exists (only if no proxy exists)
         if not os.path.exists(jt_path):
             self.logger.log(f"✗ JT file not found: {jt_path}", "ERROR")
             return
@@ -2044,25 +2064,6 @@ class Cinema4DImporter:
             root_objects.append(obj_iter)
             obj_iter = obj_iter.GetNext()
         
-        # Determine the output path for the Redshift proxy
-        # Use the working directory, not the active document directory
-        # Use .rs extension as intended for Redshift proxies
-        proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
-        proxy_path = os.path.join(self.working_directory, proxy_filename)
-        
-        # Check if the .rs proxy file already exists in the working directory
-        proxy_exists = os.path.exists(proxy_path)
-        if proxy_exists:
-            self.logger.log(f"ℹ Redshift proxy already exists, skipping creation: {proxy_path}")
-            # Even though we skip creation, we still processed the materials as required by Step 2
-            # However, since we're working with a temporary document that doesn't get saved when proxy exists,
-            # the material replacement from this session doesn't persist. That's OK - the existing proxy
-            # should already have the correct materials from when it was originally created.
-            self.total_files_processed += 1
-            return  # Skip export if proxy already exists
-        else:
-            self.logger.log(f"📁 Creating new proxy at: {proxy_path}")
-        
         # Process materials: replace with materials from the PLMXML file specification
         if material_properties and len(root_objects) > 0:
             for obj in root_objects:
@@ -2091,13 +2092,7 @@ class Cinema4DImporter:
         
         # Increment files since last save counter
         self.files_since_last_save += 1
-        
-        # Perform incremental save if needed
-        if self.files_since_last_save >= self.save_interval:
-            self.logger.log("⏳ Performing incremental save...")
-            self.geometry_manager._perform_incremental_save(doc)
-            self.files_since_last_save = 0  # Reset counter
-    
+            
     def _replace_materials_with_closest_match(self, obj, material_properties, doc, mode="assembly"):
         """Replace materials in the loaded JT geometry with existing materials from the document that match the PLMXML specification"""
         # Generate the material name that would have been created in Step 1
@@ -2418,7 +2413,7 @@ class Cinema4DImporter:
 
                 # Connect the ports
                 userdata_output.Connect(proxy_input)
-                print(f"Successfully created Redshift Proxy for: {filename}")
+                print(f"Successfully created Redshift Proxy for: {proxy_filename}")
                 
                 # move node under the JT null object
                 proxy_obj.InsertUnder(jt_null_obj)  
@@ -2462,13 +2457,7 @@ class Cinema4DImporter:
         
         # Increment files since last save counter
         self.files_since_last_save += 1
-        
-        # Perform incremental save if needed
-        if self.files_since_last_save >= self.save_interval:
-            self.logger.log("⏳ Performing incremental save...")
-            self.geometry_manager._perform_incremental_save(doc)
-            self.files_since_last_save = 0  # Reset counter
-    
+            
     def _create_matrix_from_transform(self, transform_matrix):
         """Convert 16-value row-major matrix to Cinema 4D Matrix (transposed)"""
         if len(transform_matrix) != 16:
