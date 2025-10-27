@@ -1990,11 +1990,8 @@ class Cinema4DImporter:
         # Update progress tracking counter
         self.processed_jt_count += 1
         remaining_files = max(0, self.total_jt_files - self.processed_jt_count)
-        
-        # Since Redshift is built into Cinema 4D 2025, import is always available
-#        import redshift
-        
-        # Step 2: Check first whether the .rs already exists. If it exists we do not need to load the jt file.
+                
+        # SCheck first whether the .rs already exists.
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(self.working_directory, proxy_filename)
         proxy_exists = os.path.exists(proxy_path)
@@ -2022,24 +2019,19 @@ class Cinema4DImporter:
         time.sleep(3)
 
         self.logger.log(f"⏳ Loading JT file into current document: {jt_path}")
-        load_success = False        
         try:
             load_success = c4d.documents.MergeDocument(
                 current_doc, 
                 jt_path, 
                 c4d.SCENEFILTER_OBJECTS  # Geometry only, NO materials
             )
+            self.logger.log("⏳ pause after loading JT file to prevent race conditions...")
+            time.sleep(3)
         except Exception as e:
             self.logger.log(f"✗ EXCEPTION during JT load: {str(e)}", "ERROR")
-            load_success = False
-        
-        if not load_success:
             self.logger.log(f"✗ Failed to load JT file: {jt_path}", "ERROR")
             return
         
-        self.logger.log("⏳ pause after loading JT file to prevent race conditions...")
-        time.sleep(3)
-
         # Count polygons in loaded geometry using the geometry manager
         total_polygons = self.geometry_manager._count_polygons_in_document(current_doc)
         self.logger.log(f"📊 Polygons in {os.path.basename(jt_path)}: {total_polygons:,}")
@@ -2062,12 +2054,12 @@ class Cinema4DImporter:
             for obj in root_objects:
                 self._replace_materials_with_closest_match(obj, material_properties, doc, "create_redshift_proxies")
         
-        self.logger.log("⏳ pause preperation for reshicft export to prevent race conditions...")
+        self.logger.log("⏳ pause preperation for redshift export to prevent race conditions...")
         time.sleep(3)
 
         # Use only the known working format ID 1038650 for Redshift proxy export
+        format_id = 1038650            
         try:
-            format_id = 1038650            
             if c4d.documents.SaveDocument(current_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
                 self.logger.log(f"✓ Redshift proxy processing completed for: {os.path.basename(proxy_path)}")
                 self.logger.log("⏳ pause after redshift export to prevent race conditions...")
@@ -2075,7 +2067,10 @@ class Cinema4DImporter:
             else:
                 self.logger.log(f"✗ Redshift proxy export failed with format {format_id}", "ERROR")
         except Exception as e:
-            self.logger.log(f"✗ Fallback Redshift proxy export failed: {str(e)}", "ERROR")
+            self.logger.log(f"✗ Redshift proxy export failed with format {format_id}, Exception {str(e)}", "ERROR")
+
+        self.logger.log("⏳ pause at end of redhist proxy generation...")
+        time.sleep(3)
         self.total_files_processed += 1
             
     def _replace_materials_with_closest_match(self, obj, material_properties, doc, mode="assembly"):
