@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 import os
 from collections import defaultdict
 import traceback
+import time
 import redshift
 import maxon
 
@@ -1991,7 +1992,7 @@ class Cinema4DImporter:
         remaining_files = max(0, self.total_jt_files - self.processed_jt_count)
         
         # Since Redshift is built into Cinema 4D 2025, import is always available
-        import redshift
+#        import redshift
         
         # Step 2: Check first whether the .rs already exists. If it exists we do not need to load the jt file.
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
@@ -2009,83 +2010,72 @@ class Cinema4DImporter:
             self.logger.log(f"✗ JT file not found: {jt_path}", "ERROR")
             return
         
-        # Store reference to the original document
-        original_doc = c4d.documents.GetActiveDocument()
-        
-        # Copy the current document into a new document and activate it
-        temp_doc = original_doc.GetClone(c4d.COPYFLAGS_0)
-        if temp_doc is None:
-            self.logger.log(f"✗ Failed to create temporary document for JT loading", "ERROR")
-            return
-        
-        # Activate the new document
-        c4d.documents.SetActiveDocument(temp_doc)
-        
-        # Clear any existing objects in the temporary document while keeping materials
-        obj = temp_doc.GetFirstObject()
+        # Clear any existing objects in the current document while keeping materials
+        current_doc = c4d.documents.GetActiveDocument()
+        obj = current_doc.GetFirstObject()
         while obj:
             next_obj = obj.GetNext()
             obj.Remove()
             obj = next_obj
         
-        self.logger.log(f"⏳ Loading JT file into temporary document: {jt_path}")
+        self.logger.log("⏳ pause after tree deletion to prevent race conditions...")
+        time.sleep(3)
+
+        self.logger.log(f"⏳ Loading JT file into current document: {jt_path}")
         load_success = False        
         try:
             load_success = c4d.documents.MergeDocument(
-                temp_doc, 
+                current_doc, 
                 jt_path, 
                 c4d.SCENEFILTER_OBJECTS  # Geometry only, NO materials
             )
         except Exception as e:
             self.logger.log(f"✗ EXCEPTION during JT load: {str(e)}", "ERROR")
-            # Restore original document before returning
-            c4d.documents.SetActiveDocument(original_doc)
-            c4d.documents.KillDocument(temp_doc)
             load_success = False
         
         if not load_success:
             self.logger.log(f"✗ Failed to load JT file: {jt_path}", "ERROR")
             return
         
+        self.logger.log("⏳ pause after loading JT file to prevent race conditions...")
+        time.sleep(3)
+
         # Count polygons in loaded geometry using the geometry manager
-        total_polygons = self.geometry_manager._count_polygons_in_document(temp_doc)
+        total_polygons = self.geometry_manager._count_polygons_in_document(current_doc)
         self.logger.log(f"📊 Polygons in {os.path.basename(jt_path)}: {total_polygons:,}")
         
-        # Get the geometry from the temporary document - handle multiple objects if present
-        temp_doc_obj = temp_doc.GetFirstObject()
-        if temp_doc_obj is None:
+        # Get the geometry from the current document - handle multiple objects if present
+        current_doc_obj = current_doc.GetFirstObject()
+        if current_doc_obj is None:
             self.logger.log(f"⚠ No geometry found in JT file: {jt_path}", "WARNING")
-            # Restore original document
-            c4d.documents.SetActiveDocument(original_doc)
-            c4d.documents.KillDocument(temp_doc)
             return
         
-        # Handle multiple root objects by getting them from the temporary document
+        # Handle multiple root objects by getting them from the current document
         root_objects = []
-        obj_iter = temp_doc.GetFirstObject()
+        obj_iter = current_doc.GetFirstObject()
         while obj_iter:
             root_objects.append(obj_iter)
             obj_iter = obj_iter.GetNext()
-        
+
         # Process materials: replace with materials from the PLMXML file specification
         if material_properties and len(root_objects) > 0:
             for obj in root_objects:
                 self._replace_materials_with_closest_match(obj, material_properties, doc, "create_redshift_proxies")
         
+        self.logger.log("⏳ pause preperation for reshicft export to prevent race conditions...")
+        time.sleep(3)
+
         # Use only the known working format ID 1038650 for Redshift proxy export
         try:
             format_id = 1038650            
-            if c4d.documents.SaveDocument(temp_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
+            if c4d.documents.SaveDocument(current_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
                 self.logger.log(f"✓ Redshift proxy processing completed for: {os.path.basename(proxy_path)}")
+                self.logger.log("⏳ pause after redshift export to prevent race conditions...")
+                time.sleep(3)
             else:
                 self.logger.log(f"✗ Redshift proxy export failed with format {format_id}", "ERROR")
         except Exception as e:
             self.logger.log(f"✗ Fallback Redshift proxy export failed: {str(e)}", "ERROR")
-        
-        # Delete the copied document and activate the original document
-        c4d.documents.KillDocument(temp_doc)
-        c4d.documents.SetActiveDocument(original_doc)
-        
         self.total_files_processed += 1
             
     def _replace_materials_with_closest_match(self, obj, material_properties, doc, mode="assembly"):
