@@ -2009,24 +2009,38 @@ class Cinema4DImporter:
             self.logger.log(f"✗ JT file not found: {jt_path}", "ERROR")
             return
         
-        # Clear any existing objects in the current document while keeping materials
-        current_doc = c4d.documents.GetActiveDocument()
-        obj = current_doc.GetFirstObject()
+        # Store reference to the original document
+        original_doc = c4d.documents.GetActiveDocument()
+        
+        # Copy the current document into a new document and activate it
+        temp_doc = original_doc.GetClone(c4d.COPYFLAGS_0)
+        if temp_doc is None:
+            self.logger.log(f"✗ Failed to create temporary document for JT loading", "ERROR")
+            return
+        
+        # Activate the new document
+        c4d.documents.SetActiveDocument(temp_doc)
+        
+        # Clear any existing objects in the temporary document while keeping materials
+        obj = temp_doc.GetFirstObject()
         while obj:
             next_obj = obj.GetNext()
             obj.Remove()
             obj = next_obj
         
-        self.logger.log(f"⏳ Loading JT file into current document: {jt_path}")
+        self.logger.log(f"⏳ Loading JT file into temporary document: {jt_path}")
         load_success = False        
         try:
             load_success = c4d.documents.MergeDocument(
-                current_doc, 
+                temp_doc, 
                 jt_path, 
                 c4d.SCENEFILTER_OBJECTS  # Geometry only, NO materials
             )
         except Exception as e:
             self.logger.log(f"✗ EXCEPTION during JT load: {str(e)}", "ERROR")
+            # Restore original document before returning
+            c4d.documents.SetActiveDocument(original_doc)
+            c4d.documents.KillDocument(temp_doc)
             load_success = False
         
         if not load_success:
@@ -2034,18 +2048,21 @@ class Cinema4DImporter:
             return
         
         # Count polygons in loaded geometry using the geometry manager
-        total_polygons = self.geometry_manager._count_polygons_in_document(current_doc)
+        total_polygons = self.geometry_manager._count_polygons_in_document(temp_doc)
         self.logger.log(f"📊 Polygons in {os.path.basename(jt_path)}: {total_polygons:,}")
         
-        # Get the geometry from the current document - handle multiple objects if present
-        current_doc_obj = current_doc.GetFirstObject()
-        if current_doc_obj is None:
+        # Get the geometry from the temporary document - handle multiple objects if present
+        temp_doc_obj = temp_doc.GetFirstObject()
+        if temp_doc_obj is None:
             self.logger.log(f"⚠ No geometry found in JT file: {jt_path}", "WARNING")
+            # Restore original document
+            c4d.documents.SetActiveDocument(original_doc)
+            c4d.documents.KillDocument(temp_doc)
             return
         
-        # Handle multiple root objects by getting them from the current document
+        # Handle multiple root objects by getting them from the temporary document
         root_objects = []
-        obj_iter = current_doc.GetFirstObject()
+        obj_iter = temp_doc.GetFirstObject()
         while obj_iter:
             root_objects.append(obj_iter)
             obj_iter = obj_iter.GetNext()
@@ -2058,12 +2075,17 @@ class Cinema4DImporter:
         # Use only the known working format ID 1038650 for Redshift proxy export
         try:
             format_id = 1038650            
-            if c4d.documents.SaveDocument(current_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
+            if c4d.documents.SaveDocument(temp_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
                 self.logger.log(f"✓ Redshift proxy processing completed for: {os.path.basename(proxy_path)}")
             else:
                 self.logger.log(f"✗ Redshift proxy export failed with format {format_id}", "ERROR")
         except Exception as e:
             self.logger.log(f"✗ Fallback Redshift proxy export failed: {str(e)}", "ERROR")
+        
+        # Delete the copied document and activate the original document
+        c4d.documents.KillDocument(temp_doc)
+        c4d.documents.SetActiveDocument(original_doc)
+        
         self.total_files_processed += 1
             
     def _replace_materials_with_closest_match(self, obj, material_properties, doc, mode="assembly"):
