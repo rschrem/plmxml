@@ -1989,51 +1989,37 @@ class Cinema4DImporter:
         # Update progress tracking counter
         self.processed_jt_count += 1
         remaining_files = max(0, self.total_jt_files - self.processed_jt_count)
-        self.logger.log(f"🎬 Creating redshift proxy for: {os.path.basename(jt_path)} ({self.processed_jt_count}/{self.total_jt_files}, {remaining_files} left)")
         
         # Since Redshift is built into Cinema 4D 2025, import is always available
         import redshift
         
         # Step 2: Check first whether the .rs already exists. If it exists we do not need to load the jt file.
-        # Determine the output path for the Redshift proxy
-        # Use the working directory, not the active document directory
-        # Use .rs extension as intended for Redshift proxies
         proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
         proxy_path = os.path.join(self.working_directory, proxy_filename)
-        
-        # Check if the .rs proxy file already exists in the working directory
         proxy_exists = os.path.exists(proxy_path)
         if proxy_exists:
-            self.logger.log(f"ℹ Redshift proxy already exists, skipping creation and JT file load: {proxy_path}")
-            # Even though we skip creation, we still processed the materials as required by Step 2
-            # However, since we're working with a temporary document that doesn't get saved when proxy exists,
-            # the material replacement from this session doesn't persist. That's OK - the existing proxy
-            # should already have the correct materials from when it was originally created.
+            self.logger.log(f"ℹ Redshift proxy already exists, skipping creation: {proxy_path}")
             self.total_files_processed += 1
-            return  # Skip export if proxy already exists
+            return
         else:
-            self.logger.log(f"📁 Creating new proxy at: {proxy_path}")
+            self.logger.log(f"🎬 Creating redshift proxy for: {os.path.basename(jt_path)} ({self.processed_jt_count}/{self.total_jt_files}, {remaining_files} left)")
         
-        # Check if file exists (only if no proxy exists)
+        # Check if jt file exists
         if not os.path.exists(jt_path):
             self.logger.log(f"✗ JT file not found: {jt_path}", "ERROR")
             return
         
-        # Get the currently active document
-        current_doc = c4d.documents.GetActiveDocument()
-        
         # Clear any existing objects in the current document while keeping materials
-        # Remove all objects but keep materials and other settings
+        current_doc = c4d.documents.GetActiveDocument()
         obj = current_doc.GetFirstObject()
         while obj:
             next_obj = obj.GetNext()
             obj.Remove()
             obj = next_obj
         
-        load_success = False
-        
+        self.logger.log(f"⏳ Loading JT file into current document: {jt_path}")
+        load_success = False        
         try:
-            self.logger.log(f"⏳ Loading JT file into current document: {jt_path}")
             load_success = c4d.documents.MergeDocument(
                 current_doc, 
                 jt_path, 
@@ -2069,29 +2055,16 @@ class Cinema4DImporter:
             for obj in root_objects:
                 self._replace_materials_with_closest_match(obj, material_properties, doc, "create_redshift_proxies")
         
-        # Use the working fallback method which exports using format ID 1038650
-        # This will export the current document (which now contains only the JT geometry with replaced materials) as a proxy file
-        self._export_redshift_proxy_fallback(current_doc, proxy_path, current_doc_obj)
-    
-    def _export_redshift_proxy_fallback(self, proxy_doc, proxy_path, proxy_obj_clone):
-        """Fallback method for Redshift proxy export when Python API is not available"""
+        # Use only the known working format ID 1038650 for Redshift proxy export
         try:
-            # Use only the known working format ID 1038650 for Redshift proxy export
-            format_id = 1038650  # This format ID was confirmed to work based on log analysis
-            
-            self.logger.log(f"⏳ Using known working Redshift format: {format_id}")
-            if c4d.documents.SaveDocument(proxy_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
-                self.logger.log(f"✓ Redshift proxy exported to: {proxy_path} (format: {format_id})")
+            format_id = 1038650            
+            if c4d.documents.SaveDocument(current_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
+                self.logger.log(f"✓ Redshift proxy processing completed for: {os.path.basename(proxy_path)}")
             else:
                 self.logger.log(f"✗ Redshift proxy export failed with format {format_id}", "ERROR")
         except Exception as e:
             self.logger.log(f"✗ Fallback Redshift proxy export failed: {str(e)}", "ERROR")
-        
-        self.logger.log(f"✓ Redshift proxy processing completed for: {os.path.basename(proxy_path)}")
         self.total_files_processed += 1
-        
-        # Increment files since last save counter
-        self.files_since_last_save += 1
             
     def _replace_materials_with_closest_match(self, obj, material_properties, doc, mode="assembly"):
         """Replace materials in the loaded JT geometry with existing materials from the document that match the PLMXML specification"""
