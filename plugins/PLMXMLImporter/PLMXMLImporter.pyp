@@ -2016,7 +2016,8 @@ class Cinema4DImporter:
             obj = next_obj
         
         self.logger.log("⏳ pause after tree deletion to prevent race conditions...")
-        time.sleep(3)
+        c4d.EventAdd()
+        time.sleep(1)
 
         self.logger.log(f"⏳ Loading JT file into current document: {jt_path}")
         try:
@@ -2025,12 +2026,14 @@ class Cinema4DImporter:
                 jt_path, 
                 c4d.SCENEFILTER_OBJECTS  # Geometry only, NO materials
             )
-            self.logger.log("⏳ pause after loading JT file to prevent race conditions...")
-            time.sleep(3)
         except Exception as e:
             self.logger.log(f"✗ EXCEPTION during JT load: {str(e)}", "ERROR")
             self.logger.log(f"✗ Failed to load JT file: {jt_path}", "ERROR")
             return
+
+        self.logger.log("⏳ pause after loading JT file to prevent race conditions...")
+        c4d.EventAdd()
+        time.sleep(5)
         
         # Count polygons in loaded geometry using the geometry manager
         total_polygons = self.geometry_manager._count_polygons_in_document(current_doc)
@@ -2054,23 +2057,23 @@ class Cinema4DImporter:
             for obj in root_objects:
                 self._replace_materials_with_closest_match(obj, material_properties, doc, "create_redshift_proxies")
         
-        self.logger.log("⏳ pause preperation for redshift export to prevent race conditions...")
-        time.sleep(3)
+        self.logger.log("⏳ pause after replace with materials from the PLMXML file specification to prevent race conditions...")
+        c4d.EventAdd()
+        time.sleep(5)
 
         # Use only the known working format ID 1038650 for Redshift proxy export
         format_id = 1038650            
         try:
             if c4d.documents.SaveDocument(current_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
                 self.logger.log(f"✓ Redshift proxy processing completed for: {os.path.basename(proxy_path)}")
-                self.logger.log("⏳ pause after redshift export to prevent race conditions...")
-                time.sleep(3)
             else:
                 self.logger.log(f"✗ Redshift proxy export failed with format {format_id}", "ERROR")
         except Exception as e:
             self.logger.log(f"✗ Redshift proxy export failed with format {format_id}, Exception {str(e)}", "ERROR")
 
-        self.logger.log("⏳ pause at end of redhist proxy generation...")
-        time.sleep(3)
+        self.logger.log("⏳ pause at end of redshift proxy generation  to prevent race conditions...")
+        c4d.EventAdd()
+#        time.sleep(1)
         self.total_files_processed += 1
             
     def _replace_materials_with_closest_match(self, obj, material_properties, doc, mode="assembly"):
