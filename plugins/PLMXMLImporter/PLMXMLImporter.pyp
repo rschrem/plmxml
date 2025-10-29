@@ -2051,6 +2051,37 @@ class Cinema4DImporter:
         while obj_iter:
             root_objects.append(obj_iter)
             obj_iter = obj_iter.GetNext()
+        
+        # Check for a node called "AUS_FINAL_PART" and keep only that geometry mesh node if it exists
+        aus_final_part_node = None
+        for obj in root_objects:
+            if obj.GetName() == "AUS_FINAL_PART" and obj.GetType() == c4d.Opolygon:
+                aus_final_part_node = obj
+                break
+        
+        # If AUS_FINAL_PART node exists, delete all other geometry mesh nodes and keep only this one
+        if aus_final_part_node is not None:
+            self.logger.log(f"🔍 Found AUS_FINAL_PART node: {aus_final_part_node.GetName()}")
+            
+            # Remove all other objects except the AUS_FINAL_PART node
+            obj_to_keep = aus_final_part_node
+            obj = current_doc.GetFirstObject()
+            objects_to_remove = []
+            
+            while obj:
+                if obj != obj_to_keep:
+                    objects_to_remove.append(obj)
+                obj = obj.GetNext()
+            
+            # Remove all other objects
+            for obj_to_remove in objects_to_remove:
+                obj_to_remove.Remove()
+            
+            # Update root_objects to contain only the AUS_FINAL_PART node
+            root_objects = [obj_to_keep]
+            self.logger.log(f"✅ Kept only AUS_FINAL_PART node, removed {len(objects_to_remove)} other objects")
+        else:
+            self.logger.log(f"⚠ AUS_FINAL_PART node not found, keeping all {len(root_objects)} objects")
 
         # Process materials: replace with materials from the PLMXML file specification
         if material_properties and len(root_objects) > 0:
