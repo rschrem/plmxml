@@ -1842,6 +1842,11 @@ class Cinema4DImporter:
                 
                 # Process this JT file for material extraction directly
                 self._process_material_extraction(jt_full_path, material_properties, doc)
+                
+                # Update GUI to reflect changes after processing each JT file in Step 1
+                c4d.EventAdd()
+                c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
+                c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
     def _process_all_jt_files_for_proxy_creation(self, plmxml_parser, doc):
         """Process all JT files directly for proxy creation without building assembly tree - Step 2 only"""
@@ -1876,6 +1881,11 @@ class Cinema4DImporter:
                 
                 # Process this JT file for proxy creation directly
                 self._process_redshift_proxy_creation(jt_full_path, None, material_properties, doc)
+                
+                # Update GUI to reflect changes after processing each JT file in Step 2
+                c4d.EventAdd()
+                c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
+                c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
     
     def _count_total_files(self, plmxml_parser, mode):
         """Count total files to be processed based on mode"""
@@ -1942,9 +1952,19 @@ class Cinema4DImporter:
             if mode == "material_extraction":
                 # Only extract materials, don't load geometry
                 self._process_material_extraction(jt_full_path, material_properties, doc)
+                
+                # Update GUI to reflect changes after processing each JT file in Step 1
+                c4d.EventAdd()
+                c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
+                c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
             elif mode == "create_redshift_proxies":
                 # Create redshift proxies
                 self._process_redshift_proxy_creation(jt_full_path, null_obj, material_properties, doc)
+                
+                # Update GUI to reflect changes after processing each JT file in Step 2
+                c4d.EventAdd()
+                c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
+                c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
             elif mode == "compile_redshift_proxies":
                 # Compile assembly using existing redshift proxies
                 self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc, jt_transform)
@@ -1984,6 +2004,11 @@ class Cinema4DImporter:
         
         # Skip incremental save in material extraction mode, just reset counter
         self.files_since_last_save = 0  # Reset counter to prevent incremental saves during material extraction
+        
+        # Update GUI to reflect changes after processing each JT file
+        c4d.EventAdd()
+        c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
     
     def _process_redshift_proxy_creation(self, jt_path, parent_obj_unused, material_properties, doc):
         """Process redshift proxy creation - Step 2: Create proxy files only, no assembly tree building"""
@@ -2014,16 +2039,16 @@ class Cinema4DImporter:
             next_obj = obj.GetNext()
             obj.Remove()
             obj = next_obj
-        self.logger.log("⏳ pause after tree deletion to prevent race conditions...")
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-        doc.FlushUndoBuffer()  # If you don't need undo
-        c4d.EventAdd()
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-        # Light viewport update
-        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
-        doc.FlushUndoBuffer()  # If you don't need undo
-        c4d.EventAdd()
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        self.logger.log("⏳ pause after tree deletion to prevent race conditions...")
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        doc.FlushUndoBuffer()  # If you don't need undo
+#        c4d.EventAdd()
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        # Light viewport update
+#        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+#        doc.FlushUndoBuffer()  # If you don't need undo
+#        c4d.EventAdd()
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
         self.logger.log(f"⏳ Loading JT file into current document: {jt_path}")
         try:
@@ -2038,11 +2063,13 @@ class Cinema4DImporter:
             return
 
         self.logger.log("⏳ pause after loading JT file to prevent race conditions...")
+        doc.FlushUndoBuffer()  # If you don't need undo
         c4d.EventAdd()
         c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-
-        # Light viewport update
         c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+        doc.FlushUndoBuffer()  # If you don't need undo
+        c4d.EventAdd()
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
         
         # Count polygons in loaded geometry using the geometry manager
         total_polygons = self.geometry_manager._count_polygons_in_document(current_doc)
@@ -2061,62 +2088,111 @@ class Cinema4DImporter:
             root_objects.append(obj_iter)
             obj_iter = obj_iter.GetNext()
         
-        # Check for a node called "AUS_FINAL_PART" and keep only that geometry mesh node if it exists
+        # Check for a child node of root objects named "AUS_FINAL_PART" or "OUT_FINAL_PART" and keep only that geometry mesh node if it exists
         aus_final_part_node = None
-        for obj in root_objects:
-            if obj.GetName() == "AUS_FINAL_PART" and obj.GetType() == c4d.Opolygon:
-                aus_final_part_node = obj
+        parent_node = None
+        
+        # Search through root objects and their children for "AUS_FINAL_PART" or 
+        for root_obj in root_objects:
+#            # First check if the root object itself is named "AUS_FINAL_PART"
+#            if root_obj.GetName() == "AUS_FINAL_PART" and root_obj.GetType() == c4d.Opolygon:
+#                aus_final_part_node = root_obj
+#                parent_node = None  # This is already a root node
+#                break
+            
+            # Then check children of each root object
+            child = root_obj.GetDown()
+            while child:
+                if child.GetName() == "AUS_FINAL_PART" or child.GetName() ==  "OUT_FINAL_PART":
+                    aus_final_part_node = child
+                    parent_node = root_obj
+                    break
+                child = child.GetNext()
+            
+            if aus_final_part_node:
                 break
         
-        # If AUS_FINAL_PART node exists, delete all other geometry mesh nodes and keep only this one
+        # If AUS_FINAL_PART | "OUT_FINAL_PART" node exists as a child, delete all other child nodes from its parent
         if aus_final_part_node is not None:
-            self.logger.log(f"🔍 Found AUS_FINAL_PART node: {aus_final_part_node.GetName()}")
+            self.logger.log(f"🔍 Found AUS_FINAL_PART | OUT_FINAL_PART node: {aus_final_part_node.GetName()}")
             
-            # Remove all other objects except the AUS_FINAL_PART node
-            obj_to_keep = aus_final_part_node
-            obj = current_doc.GetFirstObject()
-            objects_to_remove = []
-            
-            while obj:
-                if obj != obj_to_keep:
-                    objects_to_remove.append(obj)
-                obj = obj.GetNext()
-            
-            # Remove all other objects
-            for obj_to_remove in objects_to_remove:
-                obj_to_remove.Remove()
-            
-            # Update root_objects to contain only the AUS_FINAL_PART node
-            root_objects = [obj_to_keep]
-            self.logger.log(f"✅ Kept only AUS_FINAL_PART node, removed {len(objects_to_remove)} other objects")
+            if parent_node is not None:
+                self.logger.log(f"📁 AUS_FINAL_PART | OUT_FINAL_PART found as child of: {parent_node.GetName()}")
+                
+                # Get all children of the parent to remove
+                child_to_keep = aus_final_part_node
+                child = parent_node.GetDown()
+                children_to_remove = []
+                
+                while child:
+                    if child != child_to_keep:
+                        children_to_remove.append(child)
+                    child = child.GetNext()
+                
+                # Remove all other children
+                for child_to_remove in children_to_remove:
+                    child_to_remove.Remove()
+                
+                # Update root_objects to contain only the parent with just the AUS_FINAL_PART child
+                # Move the AUS_FINAL_PART node to root level and remove its parent if it had no other children originally
+                # Actually, let's just make the AUS_FINAL_PART node a root node by moving it up
+                aus_final_part_node.Remove()  # Remove from parent
+                current_doc.InsertObject(aus_final_part_node)  # Insert as root object
+                
+                # Now remove the original parent if it has no other children
+                if parent_node.GetDown() is None:
+                    parent_node.Remove()
+                
+                # Update root_objects to contain only the AUS_FINAL_PART node
+                root_objects = [aus_final_part_node]
+                self.logger.log(f"✅ Kept only AUS_FINAL_PART node, removed {len(children_to_remove)} other child objects")
+            else:
+                # AUS_FINAL_PART was already a root node
+                # Remove all other root objects except the AUS_FINAL_PART node
+                obj_to_keep = aus_final_part_node
+                obj = current_doc.GetFirstObject()
+                objects_to_remove = []
+                
+                while obj:
+                    if obj != obj_to_keep:
+                        objects_to_remove.append(obj)
+                    obj = obj.GetNext()
+                
+                # Remove all other root objects
+                for obj_to_remove in objects_to_remove:
+                    obj_to_remove.Remove()
+                
+                # Update root_objects to contain only the AUS_FINAL_PART node
+                root_objects = [obj_to_keep]
+                self.logger.log(f"✅ Kept only AUS_FINAL_PART node (was already a root), removed {len(objects_to_remove)} other root objects")
         else:
-            self.logger.log(f"⚠ AUS_FINAL_PART node not found, keeping all {len(root_objects)} objects")
+            self.logger.log(f"⚠ AUS_FINAL_PART node not found as root or child, keeping all {len(root_objects)} root objects")
 
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-        doc.FlushUndoBuffer()  # If you don't need undo
-        c4d.EventAdd()
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-        # Light viewport update
-        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
-        doc.FlushUndoBuffer()  # If you don't need undo
-        c4d.EventAdd()
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        doc.FlushUndoBuffer()  # If you don't need undo
+#        c4d.EventAdd()
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        # Light viewport update
+#        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+#        doc.FlushUndoBuffer()  # If you don't need undo
+#        c4d.EventAdd()
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
         # Process materials: replace with materials from the PLMXML file specification
         if material_properties and len(root_objects) > 0:
             for obj in root_objects:
                 self._replace_materials_with_closest_match(obj, material_properties, doc, "create_redshift_proxies")
         
-        self.logger.log("⏳ pause after replace with materials from the PLMXML file specification to prevent race conditions...")
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-        doc.FlushUndoBuffer()  # If you don't need undo
-        c4d.EventAdd()
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-        # Light viewport update
-        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
-        doc.FlushUndoBuffer()  # If you don't need undo
-        c4d.EventAdd()
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        self.logger.log("⏳ pause after replace with materials from the PLMXML file specification to prevent race conditions...")
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        doc.FlushUndoBuffer()  # If you don't need undo
+#        c4d.EventAdd()
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        # Light viewport update
+#        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+#        doc.FlushUndoBuffer()  # If you don't need undo
+#        c4d.EventAdd()
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
         # Use only the known working format ID 1038650 for Redshift proxy export
         format_id = 1038650            
@@ -2128,18 +2204,23 @@ class Cinema4DImporter:
         except Exception as e:
             self.logger.log(f"✗ Redshift proxy export failed with format {format_id}, Exception {str(e)}", "ERROR")
 
-        self.logger.log("⏳ pause at end of redshift proxy generation  to prevent race conditions...")
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-        doc.FlushUndoBuffer()  # If you don't need undo
-        c4d.EventAdd()
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-        # Light viewport update
-        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
-        doc.FlushUndoBuffer()  # If you don't need undo
-        c4d.EventAdd()
-        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        self.logger.log("⏳ pause at end of redshift proxy generation  to prevent race conditions...")
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        doc.FlushUndoBuffer()  # If you don't need undo
+#        c4d.EventAdd()
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+#        # Light viewport update
+#        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+#        doc.FlushUndoBuffer()  # If you don't need undo
+#        c4d.EventAdd()
+#        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
         self.total_files_processed += 1
+        
+ #       # Update GUI to reflect changes after processing each JT file in Step 2
+ #       c4d.EventAdd()
+ #       c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
+ #       c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
             
     def _replace_materials_with_closest_match(self, obj, material_properties, doc, mode="assembly"):
         """Replace materials in the loaded JT geometry with existing materials from the document that match the PLMXML specification"""
@@ -2723,21 +2804,16 @@ class PLMXMLDialog(gui.GeDialog):
             self.plmxml_path = os.path.join(self.working_directory, plmxml_files[0])
             self.logger.log(f"✅ PLMXML file selected: {self.plmxml_path}", "INFO")
             
-            # Close the dialog completely before starting the potentially long-running import process
-            # For modal dialogs, we need to make sure they are properly closed and return False to let C4D handle the closing
+            # For long-running import processes, use a MessageData plugin approach or ensure proper main thread execution
+            # This ensures that all document modifications happen in the main thread
+            c4d.CallCommand(12098)  # Force save before import
+            
+            # Run the import process directly in the main thread to ensure all operations are GUI-safe
+            # Close the dialog first
             self.Close()
             
-            # Use a small delay to ensure the dialog is completely closed before starting the import
-            # This ensures the modal dialog is properly dismissed before the long-running operation starts
-            import threading
-            def run_import_delayed():
-                import time
-                time.sleep(0.1)  # Small delay to ensure UI is fully updated
-                self._run_import_process()
-            
-            # Run the import process in a separate thread to avoid blocking the UI
-            thread = threading.Thread(target=run_import_delayed)
-            thread.start()
+            # Execute the import process
+            self._run_import_process()
             
             return True
         
@@ -2817,6 +2893,8 @@ class PLMXMLDialog(gui.GeDialog):
             logger.close()
             # Refresh the Cinema 4D interface to show new materials
             c4d.EventAdd()
+            c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
+            c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
 
 class PLMXMLImporter(plugins.CommandData):
