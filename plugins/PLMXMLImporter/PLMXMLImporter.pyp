@@ -2019,6 +2019,11 @@ class Cinema4DImporter:
         doc.FlushUndoBuffer()  # If you don't need undo
         c4d.EventAdd()
         c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+        # Light viewport update
+        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+        doc.FlushUndoBuffer()  # If you don't need undo
+        c4d.EventAdd()
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
         self.logger.log(f"⏳ Loading JT file into current document: {jt_path}")
         try:
@@ -2037,8 +2042,7 @@ class Cinema4DImporter:
         c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
         # Light viewport update
-        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | 
-        c4d.DRAWFLAGS_NO_THREAD)
+        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
         
         # Count polygons in loaded geometry using the geometry manager
         total_polygons = self.geometry_manager._count_polygons_in_document(current_doc)
@@ -2088,12 +2092,29 @@ class Cinema4DImporter:
         else:
             self.logger.log(f"⚠ AUS_FINAL_PART node not found, keeping all {len(root_objects)} objects")
 
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+        doc.FlushUndoBuffer()  # If you don't need undo
+        c4d.EventAdd()
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+        # Light viewport update
+        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+        doc.FlushUndoBuffer()  # If you don't need undo
+        c4d.EventAdd()
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+
         # Process materials: replace with materials from the PLMXML file specification
         if material_properties and len(root_objects) > 0:
             for obj in root_objects:
                 self._replace_materials_with_closest_match(obj, material_properties, doc, "create_redshift_proxies")
         
         self.logger.log("⏳ pause after replace with materials from the PLMXML file specification to prevent race conditions...")
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+        doc.FlushUndoBuffer()  # If you don't need undo
+        c4d.EventAdd()
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+        # Light viewport update
+        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+        doc.FlushUndoBuffer()  # If you don't need undo
         c4d.EventAdd()
         c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
@@ -2108,9 +2129,16 @@ class Cinema4DImporter:
             self.logger.log(f"✗ Redshift proxy export failed with format {format_id}, Exception {str(e)}", "ERROR")
 
         self.logger.log("⏳ pause at end of redshift proxy generation  to prevent race conditions...")
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+        doc.FlushUndoBuffer()  # If you don't need undo
         c4d.EventAdd()
         c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
-        c4d.StatusClear()
+        # Light viewport update
+        c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+        doc.FlushUndoBuffer()  # If you don't need undo
+        c4d.EventAdd()
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+
         self.total_files_processed += 1
             
     def _replace_materials_with_closest_match(self, obj, material_properties, doc, mode="assembly"):
