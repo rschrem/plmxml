@@ -2588,17 +2588,71 @@ class Cinema4DImporter:
         self.files_since_last_save += 1
             
     def _create_matrix_from_transform(self, transform_matrix):
-        """Convert 16-value row-major matrix to Cinema 4D Matrix (transposed)"""
+        """Convert 16-value row-major matrix from CAD Z-up in meters to Cinema 4D Y-up in centimeters"""
         if len(transform_matrix) != 16:
             return c4d.Matrix()  # Return identity matrix if invalid
         
-        # Cinema 4D uses column-major matrices, so we transpose the rotation part
+        # PLMXML uses meters as units, but Cinema 4D uses centimeters
+        # So we need to scale all translation components by 100
+        scale_factor = 100.0
+        
+        # For coordinate system conversion from CAD Z-up to C4D Y-up:
+        # We need to apply a +90 degree rotation around the X-axis
+        # This is represented by the transformation matrix: 
+        # |1  0  0   0|
+        # |0  0 -1   0| 
+        # |0  1  0   0|
+        # |0  0  0   1|
+        
+        # Extract the original 4x4 matrix from the 16-value row-major array
+        # [ 0  1  2  3 ]
+        # [ 4  5  6  7 ]
+        # [ 8  9  10 11]
+        # [ 12 13 14 15]
+        m00, m01, m02, m03 = transform_matrix[0], transform_matrix[1], transform_matrix[2], transform_matrix[3]
+        m10, m11, m12, m13 = transform_matrix[4], transform_matrix[5], transform_matrix[6], transform_matrix[7]
+        m20, m21, m22, m23 = transform_matrix[8], transform_matrix[9], transform_matrix[10], transform_matrix[11]
+        tx, ty, tz = transform_matrix[12], transform_matrix[13], transform_matrix[14]
+        
+        # Apply the coordinate system transformation: 
+        # Convert from CAD coordinate system (Z-up) to C4D coordinate system (Y-up)
+        # This requires transforming the matrix to account for the coordinate frame change
+        # For a coordinate system transformation, the resulting matrix is:
+        # T * M * inverse(T), where T is the coordinate transformation
+        #
+        # But for this simple case where we're just converting the coordinate interpretation,
+        # we can directly compute the transformed matrix components:
+        
+        # The transformation matrix for +90° rotation around X-axis
+        # To convert a matrix M from coordinate system A to B, 
+        # we use T * M * T^(-1), where T converts from A to B coordinates
+        # Since T is orthogonal (rotation), T^(-1) = T^T (transpose)
+        
+        # For the transformation: (x,y,z) -> (x,-z,y), the 3x3 rotation matrix is:
+        # [1  0  0]
+        # [0  0 -1]
+        # [0  1  0]
+        
+        # Apply transformation: result = T * M
+        # Where T is the coordinate transformation matrix
+        # T * M (first three rows only):
+        # [1  0  0  0] [m00 m01 m02 m03]   [m00 m01 m02 m03]
+        # [0  0 -1  0] [m10 m11 m12 m13] = [-m20 -m21 -m22 -m23]
+        # [0  1  0  0] [m20 m21 m22 m23]   [m10  m11  m12  m13 ]
+        # [0  0  0  1] [tx  ty  tz  1 ]    [tx   ty   tz   1  ]
+        
+        # So the resulting matrix has:
+        # New X axis: (m00, -m20, m10)
+        # New Y axis: (m01, -m21, m11) 
+        # New Z axis: (m02, -m22, m12)
+        # New translation: (tx, -tz, ty)
+        
         m = c4d.Matrix()
-        # Read columns from row-major (transposes rotation)
-        m.v1 = c4d.Vector(transform_matrix[0], transform_matrix[4], transform_matrix[8])    # Column 0: X-axis
-        m.v2 = c4d.Vector(transform_matrix[1], transform_matrix[5], transform_matrix[9])    # Column 1: Y-axis
-        m.v3 = c4d.Vector(transform_matrix[2], transform_matrix[6], transform_matrix[10])   # Column 2: Z-axis
-        m.off = c4d.Vector(transform_matrix[12], transform_matrix[13], transform_matrix[14]) # Translation
+        m.v1 = c4d.Vector(m00, -m20, m10)  # New X-axis (rotation part stays as is)
+        m.v2 = c4d.Vector(m01, -m21, m11)  # New Y-axis (rotation part stays as is)
+        m.v3 = c4d.Vector(m02, -m22, m12)  # New Z-axis (rotation part stays as is)
+        # Apply unit conversion to translation (meters to cm)
+        m.off = c4d.Vector(tx * scale_factor, -tz * scale_factor, ty * scale_factor)  # New translation with scaling
         
         return m
     
