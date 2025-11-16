@@ -1549,7 +1549,7 @@ class GeometryInstanceManager:
         """Get or create the hidden container for original geometries"""
         if self._hidden_container is None:
             self._hidden_container = c4d.BaseObject(c4d.Onull)
-            self._hidden_container.SetName("_PLMXML:Proxies")
+            self._hidden_container.SetName("_PLMXML_Proxies")
             self._hidden_container[c4d.NULLOBJECT_DISPLAY] = 14
             self._hidden_container[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = c4d.MODE_OFF
             self._hidden_container[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = c4d.MODE_OFF
@@ -2471,92 +2471,107 @@ class Cinema4DImporter:
         remaining_files = max(0, self.total_rs_files - self.processed_rs_count)
         self.logger.log(f"🔗 Compiling redshift proxy assembly for: {os.path.basename(jt_path)} ({self.processed_rs_count}/{self.total_rs_files}, {remaining_files} left)")
         
-        # Get the hidden container for proxy objects (_PLMXML:Proxies)
+        # Get the hidden container for proxy objects (_PLMXML_Proxies)
         hidden_container = self.geometry_manager.get_or_create_hidden_container(doc)
         self.logger.log(f"📁 Using hidden container: {hidden_container.GetName() if hidden_container else 'None'}")
         
-        # Create a null object with the same name as the JT file directly under _PLMXML:Proxies
         jt_name = os.path.splitext(os.path.basename(jt_path))[0]
-        jt_null_obj = c4d.BaseObject(c4d.Onull)
-        jt_null_obj.SetName(jt_name)
-        jt_null_obj[c4d.NULLOBJECT_DISPLAY] = 14
-        doc.InsertObject(jt_null_obj)  # Insert into document first
-        jt_null_obj.InsertUnder(hidden_container)  # Then under the hidden container
-        self.logger.log(f"📁 Created null object: {jt_null_obj.GetName()} under {hidden_container.GetName() if hidden_container else 'None'}")
-        
-        # Check if proxy file exists
-        # Use the working directory, not the document directory or JT path directory
-        proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
-        proxy_path = os.path.join(self.working_directory, proxy_filename)
-        
-        proxy_exists = os.path.exists(proxy_path)
-        self.logger.log(f"📁 Checking for proxy: {proxy_path} (exists: {proxy_exists})")
-        
-        # Create proxy object (or placeholder if proxy doesn't exist) as a child of the JT null object
-        if proxy_exists:
-            # Create a new Redshift Proxy object
-            proxy_obj = c4d.BaseObject(1038649) # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
-            # Set the proxy file path (just the filename, not full path, as per requirements)
-            proxy_filename_only = os.path.basename(proxy_path)
-            proxy_obj.SetName(proxy_filename_only)
-            doc.InsertObject(proxy_obj)
 
-            # Add User Data property "ProxyName" directly to the object
-            bc = c4d.GetCustomDatatypeDefault(c4d.DTYPE_STRING)
-            bc[c4d.DESC_NAME] = "ProxyName"
-            bc[c4d.DESC_SHORT_NAME] = "ProxyName"
-            bc[c4d.DESC_DEFAULT] = proxy_filename_only
-
-            user_data_id = proxy_obj.AddUserData(bc)
-
-            # Set the ProxyName value
-            proxy_obj[user_data_id] = proxy_filename_only
-
-            # Create XPresso Tag
-            xpresso_tag = c4d.BaseTag(c4d.Texpresso)
-            proxy_obj.InsertTag(xpresso_tag)
-            xpresso_tag.SetName("XPresso")
-
-            # Get the XPresso node master
-            node_master = xpresso_tag.GetNodeMaster()
-
-            # Create Object node for the Redshift Proxy
-            proxy_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=100)
-            proxy_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
-
-            # Create Object node for User Data access
-            userdata_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=250)
-            userdata_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
-
-            # Add output port for ProxyName from user data node
-            userdata_output = userdata_node.AddPort(c4d.GV_PORT_OUTPUT, user_data_id)
-
-            # Create the DescID for the File parameter
-            file_desc_id = c4d.DescID(c4d.DescLevel(10000, 1036765, 1038649))
-
-            # Add input port for File parameter on Redshift Proxy node
-            proxy_input = proxy_node.AddPort(c4d.GV_PORT_INPUT, file_desc_id)
-
-            if proxy_input is None:
-                gui.MessageDialog("Could not create port for File parameter.")
-
-            # Connect the ports
-            userdata_output.Connect(proxy_input)
-            print(f"Successfully created Redshift Proxy for: {proxy_filename}")
-            
-            # move node under the JT null object
-            proxy_obj.InsertUnder(jt_null_obj)  
-            proxy_obj[c4d.REDSHIFT_PROXY_DISPLAY_BOUNDBOX] = False
-            proxy_obj[c4d.REDSHIFT_PROXY_DISPLAY_MODE] = 2
-            self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
+        # check if null object already exists
+        jt_null_obj = None
+        child = hidden_container.GetDown()  # Get the first child
+        while child:
+            if child.GetName() == jt_name:  # Replace with your target child name
+                print(F"Found child {jt_name}, reuse rs proxy ***************")
+                jt_null_obj = child
+                break  # Stop once found
+            child = child.GetNext()  # Move to the next sibling
         else:
-            # Proxy file doesn't exist, create placeholder cube as child of JT null object
-            proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube (500cm in Cinema 4D units)
-            proxy_obj.SetName("Placeholder_Cube")
-            doc.InsertObject(proxy_obj)  # Insert into document first
-            proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
-            proxy_obj[c4d.ID_BASEOBJECT_GENERATOR_FLAG] = False
-            self.logger.log(f"🟦 Created placeholder cube for missing proxy file on disk: {proxy_filename}")
+            print("FChild named {jt_name} not found, Create a null object with the same name as the JT file directly under _PLMXML_Proxies")
+
+        # if null object doesn't exist, create it
+        if jt_null_obj == None:
+            # Create a null object with the same name as the JT file directly under _PLMXML_Proxies
+            jt_null_obj = c4d.BaseObject(c4d.Onull)
+            jt_null_obj.SetName(jt_name)
+            jt_null_obj[c4d.NULLOBJECT_DISPLAY] = 14
+            doc.InsertObject(jt_null_obj)  # Insert into document first
+            jt_null_obj.InsertUnder(hidden_container)  # Then under the hidden container
+            self.logger.log(f"📁 Created null object: {jt_null_obj.GetName()} under {hidden_container.GetName() if hidden_container else 'None'}")
+            
+            # Check if proxy file exists
+            # Use the working directory, not the document directory or JT path directory
+            proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
+            proxy_path = os.path.join(self.working_directory, proxy_filename)
+            
+            proxy_exists = os.path.exists(proxy_path)
+            self.logger.log(f"📁 Checking for proxy: {proxy_path} (exists: {proxy_exists})")
+            
+            # Create proxy object (or placeholder if proxy doesn't exist) as a child of the JT null object
+            if proxy_exists:
+                # Create a new Redshift Proxy object
+                proxy_obj = c4d.BaseObject(1038649) # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
+                # Set the proxy file path (just the filename, not full path, as per requirements)
+                proxy_filename_only = os.path.basename(proxy_path)
+                proxy_obj.SetName(proxy_filename_only)
+                doc.InsertObject(proxy_obj)
+
+                # Add User Data property "ProxyName" directly to the object
+                bc = c4d.GetCustomDatatypeDefault(c4d.DTYPE_STRING)
+                bc[c4d.DESC_NAME] = "ProxyName"
+                bc[c4d.DESC_SHORT_NAME] = "ProxyName"
+                bc[c4d.DESC_DEFAULT] = proxy_filename_only
+
+                user_data_id = proxy_obj.AddUserData(bc)
+
+                # Set the ProxyName value
+                proxy_obj[user_data_id] = proxy_filename_only
+
+                # Create XPresso Tag
+                xpresso_tag = c4d.BaseTag(c4d.Texpresso)
+                proxy_obj.InsertTag(xpresso_tag)
+                xpresso_tag.SetName("XPresso")
+
+                # Get the XPresso node master
+                node_master = xpresso_tag.GetNodeMaster()
+
+                # Create Object node for the Redshift Proxy
+                proxy_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=100)
+                proxy_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
+
+                # Create Object node for User Data access
+                userdata_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=250)
+                userdata_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
+
+                # Add output port for ProxyName from user data node
+                userdata_output = userdata_node.AddPort(c4d.GV_PORT_OUTPUT, user_data_id)
+
+                # Create the DescID for the File parameter
+                file_desc_id = c4d.DescID(c4d.DescLevel(10000, 1036765, 1038649))
+
+                # Add input port for File parameter on Redshift Proxy node
+                proxy_input = proxy_node.AddPort(c4d.GV_PORT_INPUT, file_desc_id)
+
+                if proxy_input is None:
+                    gui.MessageDialog("Could not create port for File parameter.")
+
+                # Connect the ports
+                userdata_output.Connect(proxy_input)
+                print(f"Successfully created Redshift Proxy for: {proxy_filename}")
+                
+                # move node under the JT null object
+                proxy_obj.InsertUnder(jt_null_obj)  
+                proxy_obj[c4d.REDSHIFT_PROXY_DISPLAY_BOUNDBOX] = False
+                proxy_obj[c4d.REDSHIFT_PROXY_DISPLAY_MODE] = 2
+                self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
+            else:
+                # Proxy file doesn't exist, create placeholder cube as child of JT null object
+                proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube (500cm in Cinema 4D units)
+                proxy_obj.SetName("Placeholder_Cube")
+                doc.InsertObject(proxy_obj)  # Insert into document first
+                proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+                proxy_obj[c4d.ID_BASEOBJECT_GENERATOR_FLAG] = False
+                self.logger.log(f"🟦 Created placeholder cube for missing proxy file on disk: {proxy_filename}")
         
         # Create an instance of the JT null object to maintain transforms in the visible hierarchy
         if jt_null_obj:
@@ -2572,10 +2587,10 @@ class Cinema4DImporter:
                     instance_obj.SetMg(jt_matrix)
                 
                 self.logger.log(f"✓ Proxy instance added to assembly: {instance_obj.GetName()}")
-                self.logger.log(f"📁 Parent object: {parent_obj.GetName() if parent_obj else 'None'}")
-                self.logger.log(f"📁 JT null object: {jt_null_obj.GetName() if jt_null_obj else 'None'}")
-                self.logger.log(f"📁 Proxy object: {proxy_obj.GetName() if proxy_obj else 'None'}")
-                self.logger.log(f"📁 Instance object: {instance_obj.GetName() if instance_obj else 'None'}")
+#                self.logger.log(f"📁 Parent object: {parent_obj.GetName() if parent_obj else 'None'}")
+#                self.logger.log(f"📁 JT null object: {jt_null_obj.GetName() if jt_null_obj else 'None'}")
+#                self.logger.log(f"📁 Proxy object: {proxy_obj.GetName() if proxy_obj else 'None'}")
+#                self.logger.log(f"📁 Instance object: {instance_obj.GetName() if instance_obj else 'None'}")
         
         self.total_files_processed += 1
         self.files_since_last_save += 1
