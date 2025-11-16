@@ -2653,7 +2653,7 @@ class Cinema4DImporter:
         m.v2 = c4d.Vector(m01, -m21, -m11)  # New Y-axis (rotation part with Z inversion)
         m.v3 = c4d.Vector(m02, -m22, -m12)  # New Z-axis (rotation part with Z inversion)
         # Apply unit conversion to translation (meters to cm) and Z inversion
-        m.off = c4d.Vector(tx * scale_factor, -tz * scale_factor, -ty * scale_factor)  # New translation with scaling and Z inversion
+        m.off = c4d.Vector(tx * scale_factor, tz * scale_factor, -ty * scale_factor)
         
         return m
     
