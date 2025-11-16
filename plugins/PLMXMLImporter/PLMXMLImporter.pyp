@@ -1409,14 +1409,14 @@ class PLMXMLParser:
             return False
     
     def _parse_instance_graph(self, root):
-        """Parse the instance graph from the PLMXML with full hierarchy"""
+        """Parse the instance graph from the PLMXML"""
         instance_graph_elem = root.find('.//plm:InstanceGraph', self.namespaces)
         if instance_graph_elem is not None:
             # Get root references
             root_refs_attr = instance_graph_elem.get('rootRefs', '')
             self.root_refs = root_refs_attr.split() if root_refs_attr else []
             
-            # Parse all instances and store them
+            # Parse all instances
             for instance_elem in instance_graph_elem.findall('.//plm:Instance', self.namespaces):
                 instance_id = instance_elem.get('id')
                 part_ref = instance_elem.get('partRef')
@@ -1442,87 +1442,8 @@ class PLMXMLParser:
                     'quantity': int(quantity),
                     'transform': transform,
                     'user_data': user_data,
-                    'children': []  # Will be populated in hierarchy building
+                    'children': []  # Will be populated later
                 }
-            
-            # Build the actual hierarchy by mapping parent-child relationships from the PLMXML structure
-            self._build_actual_hierarchy_from_plmxml(instance_graph_elem)
-    
-    def _build_actual_hierarchy_from_plmxml(self, instance_graph_elem):
-        """Build the actual parent-child relationships from PLMXML structure"""
-        # In many PLMXML files, the hierarchy is defined by the nested structure of the instance graph
-        # However, often the relationship is defined by the context in which instances appear
-        # Let's analyze the structure differently - look for assembly relationships
-        
-        # Reset all children lists first
-        for instance_id in self.instances:
-            self.instances[instance_id]['children'] = []
-        
-        # Method 1: Try to find relationships that define assembly structure
-        self._find_hierarchy_from_relationships(instance_graph_elem)
-        
-        # Method 2: If relationships didn't work, try to infer from structure
-        if self._is_hierarchy_flat():
-            self._infer_hierarchy_from_structure(instance_graph_elem)
-    
-    def _find_hierarchy_from_relationships(self, instance_graph_elem):
-        """Find parent-child relationships from Relationship elements in PLMXML"""
-        # Look for relationships in the instance graph that might define assembly structure
-        relationships = instance_graph_elem.findall('.//plm:Relationship', self.namespaces)
-        
-        for rel_elem in relationships:
-            rel_type = rel_elem.get('type', '').lower()
-            source_ref = rel_elem.get('sourceRef')
-            target_ref = rel_elem.get('targetRef')
-            
-            # Look for relationships that indicate parent-child (assembly, usage, etc.)
-            if source_ref and target_ref and any(keyword in rel_type for keyword in ['assembly', 'usage', 'uses', 'contains']):
-                if source_ref in self.instances and target_ref in self.instances:
-                    if target_ref not in self.instances[source_ref]['children']:
-                        self.instances[source_ref]['children'].append(target_ref)
-    
-    def _infer_hierarchy_from_structure(self, instance_graph_elem):
-        """Infer hierarchy from the XML structure if relationship-based approach didn't work"""
-        # Try to detect if instances are defined in a nested structure
-        # This is a fallback approach if relationship-based parsing didn't work
-        for root_id in self.root_refs:
-            if root_id in self.instances:
-                # Use XPath to find all nested Instance elements under each root
-                root_xpath = f".//plm:Instance[@id='{root_id}']"
-                root_elem = instance_graph_elem.find(root_xpath, self.namespaces)
-                
-                if root_elem is not None:
-                    # Find all direct child Instance elements under this root
-                    direct_children = []
-                    for child_elem in root_elem:
-                        if child_elem.tag.endswith('Instance'):
-                            child_id = child_elem.get('id')
-                            if child_id and child_id in self.instances:
-                                direct_children.append(child_id)
-                    
-                    # Add these as children to the root
-                    self.instances[root_id]['children'] = direct_children
-        
-        # Another common PLMXML pattern: assemblies might reference their components 
-        # via uses or components elements
-        self._check_for_component_references(instance_graph_elem)
-    
-    def _check_for_component_references(self, instance_graph_elem):
-        """Check for component references that might define the hierarchy"""
-        # Some PLMXML files have Assembly elements with references to their components
-        # or use specific elements that define the structure
-        for instance_id, instance_data in self.instances.items():
-            # Look in the XML for elements that reference this instance as a parent
-            # and connect the components accordingly
-            pass  # Implementation would depend on the specific PLMXML structure
-    
-    def _is_hierarchy_flat(self):
-        """Check if the current hierarchy is flat (all non-root instances have no children)"""
-        non_root_instances = [inst_id for inst_id in self.instances if inst_id not in self.root_refs]
-        for inst_id in non_root_instances:
-            if self.instances[inst_id]['children']:  # If any non-root instance has children
-                return False
-        return True
     
     def _parse_parts(self, root):
         """Parse the parts from the PLMXML"""
@@ -1593,10 +1514,26 @@ class PLMXMLParser:
             }
     
     def build_hierarchy(self):
-        """Build parent-child relationships in the instance graph - now properly implemented"""
-        # The hierarchy has already been built in _parse_instance_graph
-        # by parsing the nested Instance elements in the XML
-        # So just return the root references
+        """Build parent-child relationships in the instance graph"""
+        # Create a mapping of parent to children
+        parent_child_map = defaultdict(list)
+        
+        # For now, we'll assume all instances that reference a part are children of root refs
+        # In a real implementation, you'd need to parse the full hierarchy structure
+        for instance_id, instance_data in self.instances.items():
+            # Simple approach - attach to root if it's a root reference
+            if instance_id in self.root_refs:
+                continue  # Root nodes have no parent in this context
+            else:
+                # For this example, we'll attach to the first root reference
+                if self.root_refs:
+                    parent_child_map[self.root_refs[0]].append(instance_id)
+        
+        # Update instance data with children information
+        for parent_id, children_ids in parent_child_map.items():
+            if parent_id in self.instances:
+                self.instances[parent_id]['children'] = children_ids
+        
         return self.root_refs
 
 
@@ -1612,8 +1549,10 @@ class GeometryInstanceManager:
         """Get or create the hidden container for original geometries"""
         if self._hidden_container is None:
             self._hidden_container = c4d.BaseObject(c4d.Onull)
-            self._hidden_container.SetName("_PLMXML_Geometries")
-            self._hidden_container[c4d.NULLOBJECT_DISPLAY] = 3  # Hidden
+            self._hidden_container.SetName("_PLMXML:Proxies")
+            self._hidden_container[c4d.NULLOBJECT_DISPLAY] = 14
+            self._hidden_container[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = c4d.MODE_OFF
+            self._hidden_container[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = c4d.MODE_OFF
             doc.InsertObject(self._hidden_container)
         
         return self._hidden_container
@@ -1817,7 +1756,7 @@ class Cinema4DImporter:
             self._process_all_jt_files_for_proxy_creation(plmxml_parser, doc)
             return True  # Early return, no need to continue with assembly building
         else:
-            # For Step 3 (compile_redshift_proxies), build the assembly according to the specification
+            # Normal assembly building for other modes (compile_redshift_proxies)
             # Get root references for the hierarchy
             root_refs = plmxml_parser.build_hierarchy()
             
@@ -1825,37 +1764,30 @@ class Cinema4DImporter:
                 self.logger.log("⚠ No root references found in PLMXML", "WARNING")
                 return False
             
-            # Create main assembly container using PLMXML file name
-            plmxml_filename = os.path.basename(plmxml_file_path) if plmxml_file_path else "Assembly"
-            # Remove extension for the root name
-            root_name = os.path.splitext(plmxml_filename)[0] if plmxml_filename else "Assembly"
-            
+            # Create main assembly container
             assembly_root = c4d.BaseObject(c4d.Onull)
-            assembly_root.SetName(root_name)
+            assembly_root.SetName("Assembly")
+
+
+
+
+
+
+
+
+
+
+
             doc.InsertObject(assembly_root)
             
-            # Create "Proxies" node (viewport and render visibility off)
-            proxies_container = c4d.BaseObject(c4d.Onull)
-            proxies_container.SetName("Proxies")
-            proxies_container[c4d.NULLOBJECT_DISPLAY] = 3  # Hidden display
-            proxies_container.InsertUnder(assembly_root)
-            
-            # Create "Instances" node (viewport and render visibility on)
-            instances_container = c4d.BaseObject(c4d.Onull)
-            instances_container.SetName("Instances")
-            instances_container.InsertUnder(assembly_root)
-            
-            # Process all JT files and create proxy structures under "Proxies"
-            self._process_jt_files_for_proxies(plmxml_parser, doc, proxies_container)
-            
-            # Recreate the exact hierarchy found in the PLMXML file under "Instances"
+            # Process each root reference
             for root_ref in root_refs:
                 if root_ref in plmxml_parser.instances:
-                    self._recreate_plmxml_hierarchy(
+                    self._process_instance(
                         plmxml_parser.instances[root_ref], 
                         plmxml_parser, 
                         doc, 
-                        instances_container,
+                        assembly_root, 
                         mode
                     )
         
@@ -2000,10 +1932,7 @@ class Cinema4DImporter:
         
         # Create a null object for this assembly node
         null_obj = c4d.BaseObject(c4d.Onull)
-        if null_obj is None:
-            self.logger.log(f"✗ Failed to create null object for: {part_name}", "ERROR")
-            return
-            
+        null_obj[c4d.NULLOBJECT_DISPLAY] = 14
         null_obj.SetName(part_name)
         
         # Apply instance transform
@@ -2542,22 +2471,18 @@ class Cinema4DImporter:
         remaining_files = max(0, self.total_rs_files - self.processed_rs_count)
         self.logger.log(f"🔗 Compiling redshift proxy assembly for: {os.path.basename(jt_path)} ({self.processed_rs_count}/{self.total_rs_files}, {remaining_files} left)")
         
-        # Get the hidden container for proxy objects (_PLMXML_Geometries)
+        # Get the hidden container for proxy objects (_PLMXML:Proxies)
         hidden_container = self.geometry_manager.get_or_create_hidden_container(doc)
         self.logger.log(f"📁 Using hidden container: {hidden_container.GetName() if hidden_container else 'None'}")
         
-        # Create a null object with the same name as the JT file directly under _PLMXML_Geometries
+        # Create a null object with the same name as the JT file directly under _PLMXML:Proxies
         jt_name = os.path.splitext(os.path.basename(jt_path))[0]
         jt_null_obj = c4d.BaseObject(c4d.Onull)
-        if jt_null_obj:
-            jt_null_obj.SetName(jt_name)
-            doc.InsertObject(jt_null_obj)  # Insert into document first
-            jt_null_obj.InsertUnder(hidden_container)  # Then under the hidden container
-            self.logger.log(f"📁 Created JT null object: {jt_null_obj.GetName()} under {hidden_container.GetName() if hidden_container else 'None'}")
-            self.logger.log(f"📁 JT null object inserted successfully: {jt_null_obj.GetUp().GetName() if jt_null_obj.GetUp() else 'No parent'}")
-        else:
-            self.logger.log(f"✗ Failed to create JT null object for: {jt_name}", "ERROR")
-            return
+        jt_null_obj.SetName(jt_name)
+        jt_null_obj[c4d.NULLOBJECT_DISPLAY] = 14
+        doc.InsertObject(jt_null_obj)  # Insert into document first
+        jt_null_obj.InsertUnder(hidden_container)  # Then under the hidden container
+        self.logger.log(f"📁 Created null object: {jt_null_obj.GetName()} under {hidden_container.GetName() if hidden_container else 'None'}")
         
         # Check if proxy file exists
         # Use the working directory, not the document directory or JT path directory
@@ -2566,82 +2491,71 @@ class Cinema4DImporter:
         
         proxy_exists = os.path.exists(proxy_path)
         self.logger.log(f"📁 Checking for proxy: {proxy_path} (exists: {proxy_exists})")
-        self.logger.log(f"📁 Working directory: {self.working_directory}")
-        self.logger.log(f"📁 JT path: {jt_path}")
-        self.logger.log(f"📁 Self.plmxml_file_path: {getattr(self, 'plmxml_file_path', 'NOT SET')}")
         
         # Create proxy object (or placeholder if proxy doesn't exist) as a child of the JT null object
         if proxy_exists:
             # Create a new Redshift Proxy object
             proxy_obj = c4d.BaseObject(1038649) # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
-            if proxy_obj:
-                # Set the proxy file path (just the filename, not full path, as per requirements)
-                proxy_filename_only = os.path.basename(proxy_path)
-                
-                proxy_obj.SetName(proxy_filename_only)
+            # Set the proxy file path (just the filename, not full path, as per requirements)
+            proxy_filename_only = os.path.basename(proxy_path)
+            proxy_obj.SetName(proxy_filename_only)
+            doc.InsertObject(proxy_obj)
 
-                doc.InsertObject(proxy_obj)
+            # Add User Data property "ProxyName" directly to the object
+            bc = c4d.GetCustomDatatypeDefault(c4d.DTYPE_STRING)
+            bc[c4d.DESC_NAME] = "ProxyName"
+            bc[c4d.DESC_SHORT_NAME] = "ProxyName"
+            bc[c4d.DESC_DEFAULT] = proxy_filename_only
 
-                # Add User Data property "ProxyName" directly to the object
-                bc = c4d.GetCustomDatatypeDefault(c4d.DTYPE_STRING)
-                bc[c4d.DESC_NAME] = "ProxyName"
-                bc[c4d.DESC_SHORT_NAME] = "ProxyName"
-                bc[c4d.DESC_DEFAULT] = proxy_filename_only
+            user_data_id = proxy_obj.AddUserData(bc)
 
-                user_data_id = proxy_obj.AddUserData(bc)
+            # Set the ProxyName value
+            proxy_obj[user_data_id] = proxy_filename_only
 
-                # Set the ProxyName value
-                proxy_obj[user_data_id] = proxy_filename_only
+            # Create XPresso Tag
+            xpresso_tag = c4d.BaseTag(c4d.Texpresso)
+            proxy_obj.InsertTag(xpresso_tag)
+            xpresso_tag.SetName("XPresso")
 
-                # Create XPresso Tag
-                xpresso_tag = c4d.BaseTag(c4d.Texpresso)
-                proxy_obj.InsertTag(xpresso_tag)
-                xpresso_tag.SetName("XPresso")
+            # Get the XPresso node master
+            node_master = xpresso_tag.GetNodeMaster()
 
-                # Get the XPresso node master
-                node_master = xpresso_tag.GetNodeMaster()
+            # Create Object node for the Redshift Proxy
+            proxy_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=100)
+            proxy_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
 
-                # Create Object node for the Redshift Proxy
-                proxy_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=100)
-                proxy_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
+            # Create Object node for User Data access
+            userdata_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=250)
+            userdata_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
 
-                # Create Object node for User Data access
-                userdata_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=250)
-                userdata_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
+            # Add output port for ProxyName from user data node
+            userdata_output = userdata_node.AddPort(c4d.GV_PORT_OUTPUT, user_data_id)
 
-                # Add output port for ProxyName from user data node
-                userdata_output = userdata_node.AddPort(c4d.GV_PORT_OUTPUT, user_data_id)
+            # Create the DescID for the File parameter
+            file_desc_id = c4d.DescID(c4d.DescLevel(10000, 1036765, 1038649))
 
-                # Create the DescID for the File parameter
-                file_desc_id = c4d.DescID(c4d.DescLevel(10000, 1036765, 1038649))
+            # Add input port for File parameter on Redshift Proxy node
+            proxy_input = proxy_node.AddPort(c4d.GV_PORT_INPUT, file_desc_id)
 
-                # Add input port for File parameter on Redshift Proxy node
-                proxy_input = proxy_node.AddPort(c4d.GV_PORT_INPUT, file_desc_id)
+            if proxy_input is None:
+                gui.MessageDialog("Could not create port for File parameter.")
 
-                if proxy_input is None:
-                    gui.MessageDialog("Could not create port for File parameter.")
-
-                # Connect the ports
-                userdata_output.Connect(proxy_input)
-                print(f"Successfully created Redshift Proxy for: {proxy_filename}")
-                
-                # move node under the JT null object
-                proxy_obj.InsertUnder(jt_null_obj)  
-                self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
-            else:
-                # If Redshift proxy creation failed, create placeholder cube
-                proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube
-                proxy_obj.SetName("Placeholder_Cube")
-                doc.InsertObject(proxy_obj)  # Insert into document first
-                proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
-                self.logger.log(f"🟦 Failed to create Redshift proxy, using placeholder: {proxy_filename}")
-
+            # Connect the ports
+            userdata_output.Connect(proxy_input)
+            print(f"Successfully created Redshift Proxy for: {proxy_filename}")
+            
+            # move node under the JT null object
+            proxy_obj.InsertUnder(jt_null_obj)  
+            proxy_obj[c4d.REDSHIFT_PROXY_DISPLAY_BOUNDBOX] = False
+            proxy_obj[c4d.REDSHIFT_PROXY_DISPLAY_MODE] = 2
+            self.logger.log(f"✅ Redshift proxy object created: {proxy_filename}")
         else:
             # Proxy file doesn't exist, create placeholder cube as child of JT null object
             proxy_obj = self.geometry_manager._create_placeholder_cube(500.0)  # 5m cube (500cm in Cinema 4D units)
             proxy_obj.SetName("Placeholder_Cube")
             doc.InsertObject(proxy_obj)  # Insert into document first
             proxy_obj.InsertUnder(jt_null_obj)  # Then under the JT null object
+            proxy_obj[c4d.ID_BASEOBJECT_GENERATOR_FLAG] = False
             self.logger.log(f"🟦 Created placeholder cube for missing proxy file on disk: {proxy_filename}")
         
         # Create an instance of the JT null object to maintain transforms in the visible hierarchy
@@ -2664,165 +2578,7 @@ class Cinema4DImporter:
                 self.logger.log(f"📁 Instance object: {instance_obj.GetName() if instance_obj else 'None'}")
         
         self.total_files_processed += 1
-        
-        # Increment files since last save counter
         self.files_since_last_save += 1
-            
-    def _process_jt_files_for_proxies(self, plmxml_parser, doc, proxies_container):
-        """Process all JT files and create proxy structures under the Proxies container"""
-        # Iterate through all instances and parts to collect all unique JT files
-        processed_jt_files = set()  # Keep track of processed files to avoid duplicates
-        
-        # Process all instances to find all referenced JT files
-        for instance_id, instance_data in plmxml_parser.instances.items():
-            part_ref = instance_data['part_ref']
-            
-            # Skip if part reference is invalid
-            if not part_ref or part_ref not in plmxml_parser.parts:
-                continue
-            
-            part_data = plmxml_parser.parts[part_ref]
-            
-            # Process all JT files for this part
-            for jt_data in part_data.get('jt_files', []):
-                jt_file = jt_data['file']
-                
-                # Skip if we've already processed this JT file
-                if jt_file in processed_jt_files:
-                    continue
-                
-                processed_jt_files.add(jt_file)
-                
-                # Create null object with same name as JT file directly under "Proxies" node
-                jt_name = os.path.splitext(os.path.basename(jt_file))[0]  # Remove extension
-                jt_null_obj = c4d.BaseObject(c4d.Onull)
-                if jt_null_obj:
-                    jt_null_obj.SetName(jt_name)
-                    doc.InsertObject(jt_null_obj)  # Insert into document first
-                    jt_null_obj.InsertUnder(proxies_container)  # Then under the Proxies container
-                    
-                    # Check if .rs proxy file exists in working directory
-                    proxy_filename = os.path.splitext(os.path.basename(jt_file))[0] + ".rs"
-                    proxy_path = os.path.join(self.working_directory, proxy_filename)
-                    
-                    proxy_exists = os.path.exists(proxy_path)
-                    
-                    if proxy_exists:
-                        # If .rs file exists: Create Redshift Proxy object as child with just filename (no path)
-                        proxy_obj = c4d.BaseObject(1038649) # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
-                        if proxy_obj:
-                            proxy_obj.SetName(proxy_filename)
-                            doc.InsertObject(proxy_obj)
-                            
-                            # Set the proxy file path (just the filename, not full path)
-                            try:
-                                proxy_obj[2001] = os.path.basename(proxy_path)  # Common parameter ID for file path
-                            except:
-                                # If that parameter ID doesn't work, try others
-                                try:
-                                    proxy_obj[1000] = os.path.basename(proxy_path)
-                                except:
-                                    pass  # If all fails, the proxy might need manual setup
-                            
-                            proxy_obj.InsertUnder(jt_null_obj)  # Add as child to JT null object
-                    else:
-                        # If .rs file doesn't exist: Create 5×5×5 meter cube as child
-                        # Create a cube with 500cm side length (since C4D uses cm)
-                        cube = c4d.BaseObject(c4d.Ocube)
-                        if cube:
-                            cube[c4d.PRIM_CUBE_LEN] = c4d.Vector(500.0, 500.0, 500.0)  # 5m in each dimension
-                            cube.SetName("Placeholder_Cube")
-                            doc.InsertObject(cube)
-                            cube.InsertUnder(jt_null_obj)  # Add as child to JT null object
-    
-    def _recreate_plmxml_hierarchy(self, instance_data, plmxml_parser, doc, parent_obj, mode):
-        """Recreate the exact hierarchy found in the PLMXML file under the Instances container"""
-        part_ref = instance_data['part_ref']
-        
-        # Skip if part reference is invalid
-        if not part_ref or part_ref not in plmxml_parser.parts:
-            self.logger.log(f"⚠ Skipping instance with invalid part reference: {part_ref}", "WARNING")
-            return
-        
-        part_data = plmxml_parser.parts[part_ref]
-        part_name = part_data['name'] or f"Part_{part_ref}"
-        
-        # Create a null object for this instance/part and name it according to the name in the PLMXML
-        null_obj = c4d.BaseObject(c4d.Onull)
-        if null_obj is None:
-            self.logger.log(f"✗ Failed to create null object for: {part_name}", "ERROR")
-            return
-            
-        null_obj.SetName(part_name)
-        
-        # Apply transformation that was found in the PLMXML file to the null node in C4D
-        if instance_data['transform']:
-            matrix = self._create_matrix_from_transform(instance_data['transform'])
-            null_obj.SetMg(matrix)
-        
-        # Add user data
-        self._add_user_data(null_obj, instance_data['user_data'])
-        
-        # Insert under parent (the Instances container or parent part/instance)
-        null_obj.InsertUnder(parent_obj)
-        
-        # For each JT file referenced in the PLMXML file recreate the original hierarchy using instance references
-        # to the redshift nodes created under Proxies
-        for jt_data in part_data['jt_files']:
-            jt_file = jt_data['file']
-            
-            # Create C4D instance node that refers to the appropriate null node created under the Proxies root node
-            jt_name = os.path.splitext(os.path.basename(jt_file))[0]  # Get the same name as used in Proxies
-            
-            # Find the corresponding proxy null object created under Proxies
-            proxy_null_obj = self._find_proxy_null_object(parent_obj.GetDocument().GetFirstObject(), "Proxies", jt_name)
-            if proxy_null_obj:
-                # Create an instance object that references the proxy object
-                instance_obj = self.geometry_manager.create_instance(proxy_null_obj, doc)
-                if instance_obj:
-                    # Apply JT transform to the instance if provided
-                    if jt_data['transform']:
-                        jt_matrix = self._create_matrix_from_transform(jt_data['transform'])
-                        instance_obj.SetMg(jt_matrix)
-                    
-                    # Insert instance under the current null object (the part/instance node)
-                    instance_obj.InsertUnder(null_obj)
-        
-        # Process children (recursive call for child instances)
-        for child_id in instance_data.get('children', []):
-            if child_id in plmxml_parser.instances:
-                self._recreate_plmxml_hierarchy(
-                    plmxml_parser.instances[child_id], 
-                    plmxml_parser, 
-                    doc, 
-                    null_obj,  # This null_obj becomes the parent for children
-                    mode
-                )
-    
-    def _find_proxy_null_object(self, start_obj, proxy_root_name, target_name):
-        """Find a proxy null object by traversing the object hierarchy"""
-        def search_recursive(obj, proxy_root_name, target_name, current_depth=0):
-            if not obj or current_depth > 10:  # Prevent infinite recursion
-                return None
-            
-            # Check if this is the Proxies root
-            if obj.GetName() == proxy_root_name:
-                # Search within this container for the target object
-                child = obj.GetDown()
-                while child:
-                    if child.GetName() == target_name:
-                        return child
-                    child = child.GetNext()
-            
-            # Recursively search children
-            result = search_recursive(obj.GetDown(), proxy_root_name, target_name, current_depth + 1)
-            if result:
-                return result
-            
-            # Search siblings
-            return search_recursive(obj.GetNext(), proxy_root_name, target_name, current_depth)
-        
-        return search_recursive(start_obj, proxy_root_name, target_name)
             
     def _create_matrix_from_transform(self, transform_matrix):
         """Convert 16-value row-major matrix from CAD Z-up in meters to Cinema 4D Y-up in centimeters with Z-axis inversion"""
