@@ -1409,14 +1409,14 @@ class PLMXMLParser:
             return False
     
     def _parse_instance_graph(self, root):
-        """Parse the instance graph from the PLMXML"""
+        """Parse the instance graph from the PLMXML with full hierarchy"""
         instance_graph_elem = root.find('.//plm:InstanceGraph', self.namespaces)
         if instance_graph_elem is not None:
             # Get root references
             root_refs_attr = instance_graph_elem.get('rootRefs', '')
             self.root_refs = root_refs_attr.split() if root_refs_attr else []
             
-            # Parse all instances
+            # First pass: Parse all instances and store them
             for instance_elem in instance_graph_elem.findall('.//plm:Instance', self.namespaces):
                 instance_id = instance_elem.get('id')
                 part_ref = instance_elem.get('partRef')
@@ -1442,8 +1442,38 @@ class PLMXMLParser:
                     'quantity': int(quantity),
                     'transform': transform,
                     'user_data': user_data,
-                    'children': []  # Will be populated later
+                    'children': []  # Will be populated in hierarchy building
                 }
+            
+            # Second pass: Parse hierarchy relationships by looking at nested structures
+            # In PLMXML, hierarchy is often defined by nested Instance elements
+            self._build_instance_hierarchy(instance_graph_elem)
+    
+    def _build_instance_hierarchy(self, instance_graph_elem):
+        """Build parent-child relationships by parsing nested Instance elements"""
+        # For each root reference, build its hierarchy by parsing nested instances
+        # Start by looking for children of root instances
+        for root_id in self.root_refs:
+            if root_id in self.instances:
+                # Find the XML element for this root instance and look for its children
+                root_elem = instance_graph_elem.find(f".//plm:Instance[@id='{root_id}']", self.namespaces)
+                if root_elem is not None:
+                    self._parse_instance_children(root_elem, root_id)
+    
+    def _parse_instance_children(self, parent_elem, parent_id):
+        """Recursively parse children of an instance element"""
+        # Look for direct child Instance elements
+        for child_elem in parent_elem.findall('plm:Instance', self.namespaces):
+            child_id = child_elem.get('id')
+            
+            if child_id and child_id in self.instances:
+                # Add child to parent's children list
+                if parent_id in self.instances:
+                    if child_id not in self.instances[parent_id]['children']:
+                        self.instances[parent_id]['children'].append(child_id)
+                
+                # Recursively parse this child's children
+                self._parse_instance_children(child_elem, child_id)
     
     def _parse_parts(self, root):
         """Parse the parts from the PLMXML"""
@@ -1514,26 +1544,10 @@ class PLMXMLParser:
             }
     
     def build_hierarchy(self):
-        """Build parent-child relationships in the instance graph"""
-        # Create a mapping of parent to children
-        parent_child_map = defaultdict(list)
-        
-        # For now, we'll assume all instances that reference a part are children of root refs
-        # In a real implementation, you'd need to parse the full hierarchy structure
-        for instance_id, instance_data in self.instances.items():
-            # Simple approach - attach to root if it's a root reference
-            if instance_id in self.root_refs:
-                continue  # Root nodes have no parent in this context
-            else:
-                # For this example, we'll attach to the first root reference
-                if self.root_refs:
-                    parent_child_map[self.root_refs[0]].append(instance_id)
-        
-        # Update instance data with children information
-        for parent_id, children_ids in parent_child_map.items():
-            if parent_id in self.instances:
-                self.instances[parent_id]['children'] = children_ids
-        
+        """Build parent-child relationships in the instance graph - now properly implemented"""
+        # The hierarchy has already been built in _parse_instance_graph
+        # by parsing the nested Instance elements in the XML
+        # So just return the root references
         return self.root_refs
 
 
