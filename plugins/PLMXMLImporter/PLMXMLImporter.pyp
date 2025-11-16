@@ -1417,6 +1417,8 @@ class PLMXMLParser:
             self.root_refs = root_refs_attr.split() if root_refs_attr else []
             
             # First pass: Parse all instances and store them
+            # Keep track of all instance elements for hierarchy analysis
+            all_instance_elements = {}
             for instance_elem in instance_graph_elem.findall('.//plm:Instance', self.namespaces):
                 instance_id = instance_elem.get('id')
                 part_ref = instance_elem.get('partRef')
@@ -1444,36 +1446,61 @@ class PLMXMLParser:
                     'user_data': user_data,
                     'children': []  # Will be populated in hierarchy building
                 }
+                
+                all_instance_elements[instance_id] = instance_elem
             
-            # Second pass: Parse hierarchy relationships by looking at nested structures
-            # In PLMXML, hierarchy is often defined by nested Instance elements
-            self._build_instance_hierarchy(instance_graph_elem)
+            # Second pass: Build hierarchy based on possible parent-child relationships
+            # In PLMXML, hierarchy might be defined through relationships rather than nesting
+            self._build_instance_hierarchy_from_relationships(instance_graph_elem, all_instance_elements)
     
-    def _build_instance_hierarchy(self, instance_graph_elem):
-        """Build parent-child relationships by parsing nested Instance elements"""
-        # For each root reference, build its hierarchy by parsing nested instances
-        # Start by looking for children of root instances
+    def _build_instance_hierarchy_from_relationships(self, instance_graph_elem, all_instance_elements):
+        """Build parent-child relationships by analyzing the XML structure for parent-child relationships"""
+        # First, try to find nested instances (traditional tree structure)
         for root_id in self.root_refs:
-            if root_id in self.instances:
-                # Find the XML element for this root instance and look for its children
-                root_elem = instance_graph_elem.find(f".//plm:Instance[@id='{root_id}']", self.namespaces)
-                if root_elem is not None:
-                    self._parse_instance_children(root_elem, root_id)
+            if root_id in all_instance_elements:
+                # Look for nested instances under each root
+                root_elem = all_instance_elements[root_id]
+                self._parse_nested_instance_children(root_elem, root_id, all_instance_elements)
+        
+        # If the nested approach didn't work, try alternative approaches
+        # Check if there are any relationship elements that define parent-child connections
+        self._check_for_relationship_based_hierarchy(instance_graph_elem)
     
-    def _parse_instance_children(self, parent_elem, parent_id):
-        """Recursively parse children of an instance element"""
-        # Look for direct child Instance elements
-        for child_elem in parent_elem.findall('plm:Instance', self.namespaces):
+    def _parse_nested_instance_children(self, parent_elem, parent_id, all_instance_elements):
+        """Parse children of an instance element by looking for nested Instance elements"""
+        # Look for nested Instance elements under this parent
+        for child_elem in parent_elem.findall('.//plm:Instance', self.namespaces):
             child_id = child_elem.get('id')
             
-            if child_id and child_id in self.instances:
-                # Add child to parent's children list
-                if parent_id in self.instances:
-                    if child_id not in self.instances[parent_id]['children']:
-                        self.instances[parent_id]['children'].append(child_id)
-                
-                # Recursively parse this child's children
-                self._parse_instance_children(child_elem, child_id)
+            # Make sure this child is actually a direct child, not a grandchild, etc.
+            # by checking if it's a direct child of the parent element
+            if child_elem in list(parent_elem):  # Direct children of parent_elem
+                if child_id and child_id in self.instances:
+                    # Add child to parent's children list
+                    if parent_id in self.instances:
+                        if child_id not in self.instances[parent_id]['children']:
+                            self.instances[parent_id]['children'].append(child_id)
+                    
+                    # Recursively parse this child's children
+                    self._parse_nested_instance_children(child_elem, child_id, all_instance_elements)
+    
+    def _check_for_relationship_based_hierarchy(self, instance_graph_elem):
+        """Check for relationships that might define the hierarchy structure"""
+        # In some PLMXML files, relationships between instances may define the hierarchy
+        # Look for Relationship elements or similar structures
+        relationships = instance_graph_elem.findall('.//plm:Relationship', self.namespaces)
+        if relationships:
+            for rel_elem in relationships:
+                rel_type = rel_elem.get('type')
+                if rel_type and 'assembly' in rel_type.lower():
+                    # This might be an assembly relationship defining parent-child
+                    source_ref = rel_elem.get('sourceRef')
+                    target_ref = rel_elem.get('targetRef')
+                    if source_ref and target_ref:
+                        # source is parent of target
+                        if source_ref in self.instances and target_ref in self.instances:
+                            if target_ref not in self.instances[source_ref]['children']:
+                                self.instances[source_ref]['children'].append(target_ref)
     
     def _parse_parts(self, root):
         """Parse the parts from the PLMXML"""
