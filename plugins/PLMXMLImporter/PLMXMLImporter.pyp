@@ -2,27 +2,74 @@
 PLMXML Assembly Importer Plugin for Cinema 4D 2025
 Plugin ID: 1054321
 Version: 3.13
-# NOTE: Keep this version in sync with the version in documentation files (docs/product_brief.md, 
-# docs/plmxml_importer_architecture.md, docs/plmxml_plmxml_importer_prd.md)
-Git Commit: $Format:%H$
 """
 
 import c4d
 from c4d import plugins, gui, documents
-import xml.etree.ElementTree as ET
+import sys
 import os
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 import traceback
 import time
 import redshift
 import maxon
+import math
 
-# Redshift constants (must be defined manually as they're not in public API)
+# Redshift constants
 REDSHIFT_SHADER_GV_ID = 1036746
 REDSHIFT_NODESPACE_ID = "com.redshift3d.redshift4c4d.class.nodespace"
 
-# Plugin ID - Unique identifier for this plugin
+# Plugin ID
 PLUGIN_ID = 1054321
+
+# Store the file path for reloading
+PLUGIN_FILE_PATH = __file__
+
+def reload_plugin_classes():
+    """Reload only the class definitions from the plugin file"""
+    try:
+        print(f"📂 Reading plugin code from: {PLUGIN_FILE_PATH}")
+        
+        # Read the current file
+        with open(PLUGIN_FILE_PATH, 'r', encoding='utf-8') as f:
+            code = f.read()
+        
+        # Find the start of class definitions and end before plugin registration
+        # We want to reload everything between imports and the "if __name__" block
+        
+        # Split the code to exclude the registration part
+        lines = code.split('\n')
+        class_code_lines = []
+        in_main_block = False
+        
+        for line in lines:
+            # Skip the registration block
+            if 'if __name__ ==' in line or in_main_block:
+                in_main_block = True
+                continue
+            # Skip import statements we already have
+            if line.strip().startswith('import ') or line.strip().startswith('from '):
+                continue
+            # Skip the reload function itself
+            if 'def reload_plugin_classes' in line:
+                break
+                
+            class_code_lines.append(line)
+        
+        class_code = '\n'.join(class_code_lines)
+        
+        # Execute just the class definitions in the current module's namespace
+        exec(class_code, globals())
+        
+        print(f"✓ Reloaded plugin classes successfully")
+        return True
+        
+    except Exception as e:
+        print(f"✗ Failed to reload plugin classes: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 class Logger:
@@ -51,9 +98,9 @@ class Logger:
         if self.file_handle:
             try:
                 self.file_handle.write(formatted_message + "\n")
-                self.file_handle.flush()  # Immediate disk write
+                self.file_handle.flush()
             except:
-                pass  # Don't let logging errors break the application
+                pass
     
     def close(self):
         """Close the log file"""
@@ -1548,13 +1595,21 @@ class GeometryInstanceManager:
     def get_or_create_hidden_container(self, doc):
         """Get or create the hidden container for original geometries"""
         if self._hidden_container is None:
-            self._hidden_container = c4d.BaseObject(c4d.Onull)
-            self._hidden_container.SetName("_PLMXML_Proxies")
-            self._hidden_container[c4d.NULLOBJECT_DISPLAY] = 14
-            self._hidden_container[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = c4d.MODE_OFF
-            self._hidden_container[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = c4d.MODE_OFF
-            doc.InsertObject(self._hidden_container)
+            obj = doc.GetFirstObject()
+            while obj:
+                if obj.GetName() == "_PLMXML_Proxies":
+                    self._hidden_container = obj
+                    break
+                obj = obj.GetNext()
+            if self._hidden_container is None:
+                self._hidden_container = c4d.BaseObject(c4d.Onull)
+                self._hidden_container.SetName("_PLMXML_Proxies")
+                self._hidden_container[c4d.NULLOBJECT_DISPLAY] = 14
+                self._hidden_container[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = c4d.MODE_OFF
+                self._hidden_container[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = c4d.MODE_OFF
+                doc.InsertObject(self._hidden_container)
         
+
         return self._hidden_container
     
     def get_cached_geometry(self, jt_path, doc):
@@ -1768,18 +1823,10 @@ class Cinema4DImporter:
             assembly_root = c4d.BaseObject(c4d.Onull)
             assembly_root.SetName("Assembly")
 
-
-
-
-
-
-
-
-
-
-
+###            # Set rotation: HPB = Heading, Pitch, Bank
+###            assembly_root.SetRelRot(c4d.Vector(-c4d.utils.DegToRad(90), 0, 0))
             doc.InsertObject(assembly_root)
-            
+
             # Process each root reference
             for root_ref in root_refs:
                 if root_ref in plmxml_parser.instances:
@@ -1934,15 +1981,7 @@ class Cinema4DImporter:
         null_obj = c4d.BaseObject(c4d.Onull)
         null_obj[c4d.NULLOBJECT_DISPLAY] = 14
         null_obj.SetName(part_name)
-        
-        # Apply instance transform
-        if instance_data['transform']:
-            matrix = self._create_matrix_from_transform(instance_data['transform'])
-            null_obj.SetMg(matrix)
-        
-        # Add user data
-        self._add_user_data(null_obj, instance_data['user_data'])
-        
+                
         # Insert under parent
         null_obj.InsertUnder(parent_obj)
         
@@ -1976,11 +2015,55 @@ class Cinema4DImporter:
                 c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
                 c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
             elif mode == "compile_redshift_proxies":
+                # Add user data
+                self._add_user_data(null_obj, instance_data['user_data'])
+ 
+                # identity matrix
+                global_matrix = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+                self.logger.log(f"🎨 glob matrix: {global_matrix}")
+#                global_matrix = np.eye(4)
+
+                # apply part transformation
+                part_transform = instance_data['transform']
+#                if part_transform:
+#                    self.logger.log(f"🎨 part transf: {part_transform}")
+#                    # Perform matrix multiplication
+#                    result = [0.0] * 16
+#                    for row in range(4):
+#                        for col in range(4):
+#                            sum_val = 0.0
+#                            for k in range(4):
+#                                sum_val += global_matrix[row * 4 + k] * part_transform[k * 4 + col]
+#                            result[row * 4 + col] = sum_val
+#                    global_matrix = result        
+#                    self.logger.log(f"🎨 glob matrix: {global_matrix}")
+
+                jt_transform = jt_data['transform']
+#                if jt_transform:
+#                    self.logger.log(f"🎨 part transf: {jt_transform}")
+#                    # Perform matrix multiplication
+#                    result = [0.0] * 16
+#                    for row in range(4):
+#                        for col in range(4):
+#                            sum_val = 0.0
+#                            for k in range(4):
+#                                sum_val += global_matrix[row * 4 + k] * jt_transform[k * 4 + col]
+#                            result[row * 4 + col] = sum_val
+#                    global_matrix = result        
+#                    self.logger.log(f"🎨 glob matrix: {global_matrix}")
+
+                if jt_transform:
+                    # Apply part transform
+                    part_tf = self._create_matrix_from_transform(part_transform, 100.0)
+                    self.logger.log(f"🎨 part_tf       : {part_tf}")
+                    null_obj.SetMg(part_tf)
+
                 # Compile assembly using existing redshift proxies
-                self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc, jt_transform)
+                instance_tf = self._create_matrix_from_transform(jt_transform, 1.0)
+                self.logger.log(f"🎨 instance_tf   : {instance_tf}")
+                self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc, instance_tf)
             else:
-                # Default: load geometry and create instances
-                self._process_geometry_loading(jt_full_path, jt_transform, material_properties, null_obj, doc, mode)
+                self.logger.log(f"🎨 ERROR: Mode not supported, should never happen.")
         
         # Process children
         for child_id in instance_data.get('children', []):
@@ -2424,46 +2507,6 @@ class Cinema4DImporter:
         # Insert tag on the object
         obj.InsertTag(tag)
     
-    def _process_geometry_loading(self, jt_path, jt_transform, material_properties, parent_obj, doc, mode="assembly"):
-        """Process geometry loading with instances"""
-        # Get the geometry (cached or newly loaded)
-        geometry_obj = self.geometry_manager.get_cached_geometry(jt_path, doc)
-        if geometry_obj is None:
-            self.logger.log(f"✗ Failed to get geometry for: {jt_path}", "ERROR")
-            return
-        
-        # Create an instance of the geometry
-        instance_obj = self.geometry_manager.create_instance(geometry_obj, doc)
-        if instance_obj is None:
-            self.logger.log(f"✗ Failed to create instance for: {jt_path}", "ERROR")
-            return
-        
-        # Apply JT transform to the instance if provided
-        if jt_transform:
-            jt_matrix = self._create_matrix_from_transform(jt_transform)
-            instance_obj.SetMg(jt_matrix)
-        
-        # Insert instance under the parent (the assembly node)
-        instance_obj.InsertUnder(parent_obj)
-        
-        # Create and apply material if material properties exist
-        if material_properties:
-            material = self.material_manager.create_material(material_properties, doc, mode)
-            if material:
-                self._apply_material_to_geometry(instance_obj, material, doc)
-                self.total_materials += 1
-        
-        self.total_files_processed += 1
-        
-        # Increment files since last save counter
-        self.files_since_last_save += 1
-        
-        # Perform incremental save if needed
-        if self.files_since_last_save >= self.save_interval:
-            self.logger.log("⏳ Performing incremental save...")
-            self.geometry_manager._perform_incremental_save(doc)
-            self.files_since_last_save = 0  # Reset counter
-    
     def _process_compile_redshift_proxies(self, jt_path, parent_obj, material_properties, doc, jt_transform=None):
         """Process compile redshift proxies mode - creates assembly with proxy references"""
         # Update progress tracking counter
@@ -2583,27 +2626,18 @@ class Cinema4DImporter:
                 
                 # Apply JT transform to the instance if provided
                 if jt_transform:
-                    jt_matrix = self._create_matrix_from_transform(jt_transform)
-                    instance_obj.SetMg(jt_matrix)
+                    instance_obj.SetMl(jt_transform)
                 
                 self.logger.log(f"✓ Proxy instance added to assembly: {instance_obj.GetName()}")
-#                self.logger.log(f"📁 Parent object: {parent_obj.GetName() if parent_obj else 'None'}")
-#                self.logger.log(f"📁 JT null object: {jt_null_obj.GetName() if jt_null_obj else 'None'}")
-#                self.logger.log(f"📁 Proxy object: {proxy_obj.GetName() if proxy_obj else 'None'}")
-#                self.logger.log(f"📁 Instance object: {instance_obj.GetName() if instance_obj else 'None'}")
         
         self.total_files_processed += 1
         self.files_since_last_save += 1
             
-    def _create_matrix_from_transform(self, transform_matrix):
+    def _create_matrix_from_transform(self, transform_matrix, scale_factor=100.0):
         """Convert 16-value row-major matrix from CAD Z-up in meters to Cinema 4D Y-up in centimeters with Z-axis inversion"""
         if len(transform_matrix) != 16:
             return c4d.Matrix()  # Return identity matrix if invalid
-        
-        # PLMXML uses meters as units, but Cinema 4D uses centimeters
-        # So we need to scale all translation components by 100
-        scale_factor = 100.0
-        
+                
         # For coordinate system conversion from CAD Z-up to C4D Y-up:
         # First apply -90 degree rotation around the X-axis: (x,y,z) -> (x,-z,y)
         # Then invert the Z-axis: (x,-z,y) -> (x,-z,-y)
@@ -2657,11 +2691,14 @@ class Cinema4DImporter:
         # New translation: (tx, -tz, -ty)
         
         m = c4d.Matrix()
-        m.v1 = c4d.Vector(m00, -m20, -m10)  # New X-axis (rotation part with Z inversion)
-        m.v2 = c4d.Vector(m01, -m21, -m11)  # New Y-axis (rotation part with Z inversion)
-        m.v3 = c4d.Vector(m02, -m22, -m12)  # New Z-axis (rotation part with Z inversion)
+#        m.v1 = c4d.Vector(m00, -m20, -m10)  # New X-axis (rotation part with Z inversion)
+#        m.v2 = c4d.Vector(m01, -m21, -m11)  # New Y-axis (rotation part with Z inversion)
+#        m.v3 = c4d.Vector(m02, -m22, -m12)  # New Z-axis (rotation part with Z inversion)
+        m.v1 = c4d.Vector(m00, m10, m20)  # New X-axis (rotation part with Z inversion)
+        m.v2 = c4d.Vector(m01, m11, m21)  # New Y-axis (rotation part with Z inversion)
+        m.v3 = c4d.Vector(m02, m12, m22)  # New Z-axis (rotation part with Z inversion)
         # Apply unit conversion to translation (meters to cm) and Z inversion
-        m.off = c4d.Vector(tx * scale_factor, tz * scale_factor, -ty * scale_factor)
+        m.off = c4d.Vector(tx * scale_factor, tz * scale_factor, ty * scale_factor)
         
         return m
     
@@ -2961,19 +2998,24 @@ class PLMXMLDialog(gui.GeDialog):
 
 
 class PLMXMLImporter(plugins.CommandData):
-    """Main plugin class"""
+    """Main plugin class with code reloading support"""
     
     def Execute(self, doc):
         """Execute the plugin command"""
+        # Reload the plugin classes to pick up any code changes
+        print("="*80)
+        print("🔄 PLMXML Importer - Reloading code...")
+        reload_plugin_classes()
+        print("="*80)
+        
         # Show the dialog
         dlg = PLMXMLDialog()
         dlg.Open(c4d.DLG_TYPE_MODAL)
         return True
 
 
-# Plugin registration
+# Plugin registration - only runs once when Cinema 4D loads the plugin
 if __name__ == "__main__":
-    # Register the plugin
     success = plugins.RegisterCommandPlugin(
         id=PLUGIN_ID,
         str="PLMXML Assembly Importer",
@@ -2984,6 +3026,9 @@ if __name__ == "__main__":
     )
     
     if success:
-        print("PLMXML Assembly Importer plugin registered successfully!")
+        print("🎉 PLMXML Assembly Importer plugin registered successfully!")
+        print("💡 Edit code and run plugin again - classes will reload automatically")
     else:
-        print("Failed to register PLMXML Assembly Importer plugin!")
+        print("❌ Failed to register PLMXML Assembly Importer plugin!")
+
+      
