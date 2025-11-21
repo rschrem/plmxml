@@ -87,11 +87,12 @@ class Logger:
         except Exception as e:
             print(f"Could not create log file: {e}")
     
-    def log(self, message, level='INFO'):
+    def log(self, message, level='INFO', indent_level=0):
         """Log message to both console and file"""
         import datetime
+        indent = " " * indent_level
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        formatted_message = f"[{timestamp}] {level}: {message}"
+        formatted_message = f"[{timestamp}] {level}:{indent} {message}"
         
         print(formatted_message)
         
@@ -107,7 +108,843 @@ class Logger:
         if self.file_handle:
             self.file_handle.close()
 
+import xml.etree.ElementTree as ET
+from typing import Dict, List, Optional, Union
+import re
+import sys
 
+class Transform:
+    def __init__(self, element):
+        self.id = element.get('id')
+        # Parse the 16 float values into a 4x4 matrix
+        text_content = element.text or ""
+        float_values = [float(x) for x in text_content.split() if x.strip()]
+        # Reshape into 4x4 matrix
+        self.matrix = [float_values[i:i+4] for i in range(0, 16, 4)]
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'matrix': self.matrix
+        }
+
+    def matrix_as_string(self):
+        """Return the matrix as a single line string representation with 3 decimal places.
+        Returns 'Identity' if the matrix is an identity matrix."""
+        if self.matrix:
+            # Check if it's an identity matrix
+            is_identity = True
+            for i in range(4):
+                for j in range(4):
+                    expected_val = 1.0 if i == j else 0.0
+                    if abs(self.matrix[i][j] - expected_val) > 1e-9:  # Use small epsilon for float comparison
+                        is_identity = False
+                        break
+                if not is_identity:
+                    break
+
+            if is_identity:
+                return "Identity"
+
+            # Flatten the 4x4 matrix to a single line with 3 decimal places
+            flat_matrix = [f"{val:.3f}" for row in self.matrix for val in row]
+            return "[" + " ".join(flat_matrix) + "]"
+        return "[]"
+
+class UserData:
+    def __init__(self, element):
+        self.type = element.get('type')
+        self.user_values = [UserValue(child) for child in element if child.tag.endswith('UserValue')]
+
+    def to_dict(self):
+        return {
+            'type': self.type,
+            'user_values': [uv.to_dict() for uv in self.user_values]
+        }
+
+class UserValue:
+    def __init__(self, element):
+        self.title = element.get('title')
+        self.value = element.get('value')
+
+    def to_dict(self):
+        return {
+            'title': self.title,
+            'value': self.value
+        }
+
+class TableAttribute:
+    def __init__(self, element):
+        self.definition_ref = element.get('definitionRef')
+        self.rows = [Row(child) for child in element if child.tag.endswith('Row')]
+
+    def to_dict(self):
+        return {
+            'definition_ref': self.definition_ref,
+            'rows': [row.to_dict() for row in self.rows]
+        }
+
+class Row:
+    def __init__(self, element):
+        self.columns = [Column(child) for child in element if child.tag.endswith('Column')]
+
+    def to_dict(self):
+        return {
+            'columns': [col.to_dict() for col in self.columns]
+        }
+
+class Column:
+    def __init__(self, element):
+        self.col = int(element.get('col'))
+        self.value = element.get('value')
+
+    def to_dict(self):
+        return {
+            'col': self.col,
+            'value': self.value
+        }
+
+class BaseObject:
+    """Base class for objects that have an id attribute"""
+    def __init__(self, element):
+        self.id = element.get('id')
+
+    def to_dict(self):
+        return {
+            'id': self.id
+        }
+
+class Part(BaseObject):
+    def __init__(self, element):
+        super().__init__(element)
+        self.name = element.get('name')
+        self.representation_refs = element.get('representationRefs')
+        self.instance_refs = element.get('instanceRefs')
+
+        # Child elements
+        self.representation = None
+        self.transform = None
+        self.user_data = []
+        self.table_attribute = None
+        # Will be populated later with referenced objects
+        self.child_objects = []
+
+        for child in element:
+            if child.tag.endswith('Representation'):
+                self.representation = Representation(child)
+            elif child.tag.endswith('Transform'):
+                self.transform = Transform(child)
+            elif child.tag.endswith('UserData'):
+                self.user_data.append(UserData(child))
+            elif child.tag.endswith('TableAttribute'):
+                self.table_attribute = TableAttribute(child)
+
+        # Initialize nomenclature from UserData with title 'Nomenclature'
+        self.nomenclature = None
+        for user_data in self.user_data:
+            for user_value in user_data.user_values:
+                if user_value.title == 'Nomenclature':
+                    self.nomenclature = user_value.value
+                    break
+            if self.nomenclature is not None:
+                break
+
+    def to_dict(self):
+        result = {
+            'id': self.id,
+            'name': self.name,
+            'representation_refs': self.representation_refs,
+            'instance_refs': self.instance_refs,
+        }
+        if self.representation:
+            result['representation'] = self.representation.to_dict()
+        if self.user_data:
+            result['user_data'] = [ud.to_dict() for ud in self.user_data]
+        if self.table_attribute:
+            result['table_attribute'] = self.table_attribute.to_dict()
+        if self.child_objects:
+            result['child_objects'] = [co.id for co in self.child_objects]  # Only show IDs to avoid circular refs
+        return result
+
+class Representation(BaseObject):
+    def __init__(self, element):
+        super().__init__(element)
+        self.format = element.get('format')
+        self.compound_reps = [CompoundRep(child) for child in element if child.tag.endswith('CompoundRep')]
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'format': self.format,
+            'compound_reps': [cr.to_dict() for cr in self.compound_reps]
+        }
+
+class CompoundRep(BaseObject):
+    def __init__(self, element):
+        super().__init__(element)
+        self.format = element.get('format')
+        self.location = element.get('location')
+        self.name = element.get('name')
+
+        # Child elements
+        self.transform = None
+        self.user_data = []
+        self.table_attribute = None
+
+        for child in element:
+            if child.tag.endswith('Transform'):
+                self.transform = Transform(child)
+            elif child.tag.endswith('UserData'):
+                self.user_data.append(UserData(child))
+            elif child.tag.endswith('TableAttribute'):
+                self.table_attribute = TableAttribute(child)
+
+    def to_dict(self):
+        result = {
+            'id': self.id,
+            'format': self.format,
+            'location': self.location,
+            'name': self.name
+        }
+        if self.transform:
+            result['transform'] = self.transform.to_dict()
+        if self.user_data:
+            result['user_data'] = [ud.to_dict() for ud in self.user_data]
+        if self.table_attribute:
+            result['table_attribute'] = self.table_attribute.to_dict()
+        return result
+
+class Instance(BaseObject):
+    def __init__(self, element):
+        super().__init__(element)
+        self.part_ref = element.get('partRef')
+        self.quantity = int(element.get('quantity', 1)) if element.get('quantity') else 1
+
+        # Child elements
+        self.transform = None
+        self.user_data = []
+
+        for child in element:
+            if child.tag.endswith('Transform'):
+                self.transform = Transform(child)
+            elif child.tag.endswith('UserData'):
+                self.user_data.append(UserData(child))
+
+        # Will be populated later with referenced Part objects
+        self.part_references = []
+
+        # Initialize nomenclature from UserData with title 'Nomenclature'
+        self.nomenclature = None
+        for user_data in self.user_data:
+            for user_value in user_data.user_values:
+                if user_value.title == 'Nomenclature':
+                    self.nomenclature = user_value.value
+                    break
+            if self.nomenclature is not None:
+                break
+
+    def to_dict(self):
+        result = {
+            'id': self.id,
+            'part_ref': self.part_ref,
+            'quantity': self.quantity
+        }
+        if self.transform:
+            result['transform'] = self.transform.to_dict()
+        if self.user_data:
+            result['user_data'] = [ud.to_dict() for ud in self.user_data]
+        if self.part_references:
+            result['part_references'] = [pr.id for pr in self.part_references]  # Only show IDs to avoid circular refs
+        return result
+
+class GeneralObject(BaseObject):
+    def __init__(self, element):
+        super().__init__(element)
+        self.class_name = element.get('class')
+        self.user_data = [UserData(child) for child in element if child.tag.endswith('UserData')]
+
+    def to_dict(self):
+        result = {
+            'id': self.id,
+            'class_name': self.class_name
+        }
+        if self.user_data:
+            result['user_data'] = [ud.to_dict() for ud in self.user_data]
+        return result
+
+class Relation(BaseObject):
+    def __init__(self, element):
+        super().__init__(element)
+        self.related_refs = element.get('relatedRefs')
+        self.sub_type = element.get('subType')
+        self.user_data = [UserData(child) for child in element if child.tag.endswith('UserData')]
+
+        # Will be populated later with referenced objects
+        self.related_objects = []
+
+    def to_dict(self):
+        result = {
+            'id': self.id,
+            'related_refs': self.related_refs,
+            'sub_type': self.sub_type
+        }
+        if self.user_data:
+            result['user_data'] = [ud.to_dict() for ud in self.user_data]
+        if self.related_objects:
+            result['related_objects'] = [ro.id for ro in self.related_objects]  # Only show IDs to avoid circular refs
+        return result
+
+class Context(BaseObject):
+    def __init__(self, element):
+        super().__init__(element)
+        self.ref_config = element.get('refConfig')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'ref_config': self.ref_config
+        }
+
+class Contexts:
+    def __init__(self, element):
+        self.context = None
+        for child in element:
+            if child.tag.endswith('Context'):
+                self.context = Context(child)
+
+    def to_dict(self):
+        result = {}
+        if self.context:
+            result['context'] = self.context.to_dict()
+        return result
+
+class TableAttributeDefinition(BaseObject):
+    def __init__(self, element):
+        super().__init__(element)
+        self.columns = [Column(child) for child in element if child.tag.endswith('Column')]
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'columns': [col.to_dict() for col in self.columns]
+        }
+
+class Definitions:
+    def __init__(self, element):
+        self.table_attribute_definitions = [
+            TableAttributeDefinition(child)
+            for child in element
+            if child.tag.endswith('TableAttributeDefinition')
+        ]
+
+    def to_dict(self):
+        return {
+            'table_attribute_definitions': [tad.to_dict() for tad in self.table_attribute_definitions]
+        }
+
+class Header:
+    def __init__(self, element):
+        self.author = element.get('author')
+        self.creation_date = element.get('creationDate')
+        self.definition = element.get('definition')
+        self.extension_version = element.get('extensionVersion')
+        self.smaragd_version = element.get('smaragdVersion')
+
+        self.user_data = []
+        self.contexts = None
+        self.definitions = None
+
+        for child in element:
+            if child.tag.endswith('UserData'):
+                self.user_data.append(UserData(child))
+            elif child.tag.endswith('Contexts'):
+                self.contexts = Contexts(child)
+            elif child.tag.endswith('Definitions'):
+                self.definitions = Definitions(child)
+
+    def to_dict(self):
+        result = {
+            'author': self.author,
+            'creation_date': self.creation_date,
+            'definition': self.definition,
+            'extension_version': self.extension_version,
+            'smaragd_version': self.smaragd_version
+        }
+        if self.user_data:
+            result['user_data'] = [ud.to_dict() for ud in self.user_data]
+        if self.contexts:
+            result['contexts'] = self.contexts.to_dict()
+        if self.definitions:
+            result['definitions'] = self.definitions.to_dict()
+        return result
+
+class InstanceGraph:
+    def __init__(self, element):
+        self.root_refs = element.get('rootRefs')
+        self.instances = [Instance(child) for child in element if child.tag.endswith('Instance')]
+        self.parts = [Part(child) for child in element if child.tag.endswith('Part')]
+        self.general_objects = [GeneralObject(child) for child in element if child.tag.endswith('GeneralObject')]
+        self.relations = [Relation(child) for child in element if child.tag.endswith('Relation')]
+
+    def to_dict(self):
+        return {
+            'root_refs': self.root_refs,
+            'instances': [inst.to_dict() for inst in self.instances],
+            'parts': [part.to_dict() for part in self.parts],
+            'general_objects': [go.to_dict() for go in self.general_objects],
+            'relations': [rel.to_dict() for rel in self.relations]
+        }
+
+class ProductDef:
+    def __init__(self, element):
+        self.instance_graph = None
+        for child in element:
+            if child.tag.endswith('InstanceGraph'):
+                self.instance_graph = InstanceGraph(child)
+
+    def to_dict(self):
+        result = {}
+        if self.instance_graph:
+            result['instance_graph'] = self.instance_graph.to_dict()
+        return result
+
+class PLMXML:
+    def __init__(self, element):
+        self.author = element.get('author')
+        self.date = element.get('date')
+        self.schema_version = float(element.get('schemaVersion'))
+        self.time = element.get('time')
+        self.schema_location = element.get('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation')
+
+        self.product_def = None
+        self.header = None
+
+        for child in element:
+            if child.tag.endswith('ProductDef'):
+                self.product_def = ProductDef(child)
+            elif child.tag.endswith('Header'):
+                self.header = Header(child)
+
+    def to_dict(self):
+        result = {
+            'author': self.author,
+            'date': self.date,
+            'schema_version': self.schema_version,
+            'time': self.time,
+            'schema_location': self.schema_location
+        }
+        if self.product_def:
+            result['product_def'] = self.product_def.to_dict()
+        if self.header:
+            result['header'] = self.header.to_dict()
+        return result
+
+def parse_plmxml(xml_string: str) -> PLMXML:
+    """
+    Parse the PLMXML XML string and build the object relational structure in memory.
+    Creates global ID map and resolves references.
+    """
+    root = ET.fromstring(xml_string)
+
+    # Create the main PLMXML object
+    plmxml = PLMXML(root)
+
+    # Build global object map
+    id_to_object_map: Dict[str, BaseObject] = {}
+
+    # Add all objects with IDs to the map
+    def add_to_map(obj_list):
+        for obj in obj_list:
+            if hasattr(obj, 'id') and obj.id:
+                id_to_object_map[obj.id] = obj
+
+    # Add objects from the parsed structure
+    if plmxml.product_def and plmxml.product_def.instance_graph:
+        graph = plmxml.product_def.instance_graph
+        add_to_map(graph.instances)
+        add_to_map(graph.parts)
+        add_to_map(graph.general_objects)
+        add_to_map(graph.relations)
+
+    # Handle parts in representations
+    if plmxml.product_def and plmxml.product_def.instance_graph:
+        for rep in [part.representation for part in plmxml.product_def.instance_graph.parts if part.representation]:
+            if rep:
+                add_to_map(rep.compound_reps)
+
+    # Resolve partRef references for Instance objects
+    if plmxml.product_def and plmxml.product_def.instance_graph:
+        for instance in plmxml.product_def.instance_graph.instances:
+            if instance.part_ref:
+                refs = instance.part_ref.split()
+                instance.part_references = [id_to_object_map[ref] for ref in refs if ref in id_to_object_map]
+
+    # Resolve relatedRefs for Relation objects
+    if plmxml.product_def and plmxml.product_def.instance_graph:
+        for relation in plmxml.product_def.instance_graph.relations:
+            if relation.related_refs:
+                refs = relation.related_refs.split()
+                relation.related_objects = [id_to_object_map[ref] for ref in refs if ref in id_to_object_map]
+
+    # Resolve instanceRefs for Part objects
+    if plmxml.product_def and plmxml.product_def.instance_graph:
+        for part in plmxml.product_def.instance_graph.parts:
+            if part.instance_refs:
+                refs = part.instance_refs.split()
+                part.child_objects = [id_to_object_map[ref] for ref in refs if ref in id_to_object_map]
+
+    return plmxml
+
+def find_line_number(text: str, position: int) -> int:
+    """
+    Find the line number for a given character position in text.
+    """
+    lines = text[:position].splitlines()
+    return len(lines)
+
+
+###---------------------------------
+###---------------------------------
+###---------------------------------
+###---------------------------------
+
+class AssemlyCreator:
+    """Step 3: Assembly creation"""
+    
+    def __init__(self, logger, doc, working_directory):
+        self.logger = logger
+        self.doc = doc
+        self.working_directory = working_directory
+
+    def get_child_node(self, name, parentNode=None, indent_level=0):
+        """Get or create root node """
+        it = None
+        if parentNode is None:
+            it = self.doc.GetFirstObject()
+        else:
+            it = parentNode.GetDown()
+        while it:
+            if it.GetName() == name:
+                return it
+            it = it.GetNext()
+        # not found, create it
+        node = c4d.BaseObject(c4d.Onull)
+        node.SetName(name)
+        node[c4d.NULLOBJECT_DISPLAY] = 14
+        if parentNode is None:
+            self.doc.InsertObject(node)
+        else:
+            node.InsertUnder(parentNode)
+        return node
+
+    def create_c4d_transfrom_from_transform(self, transform_matrix, scale_factor=100.0):
+        """Convert 4x4 matrix to Cinema 4D transformation matrix and scale from meter to centimeters"""
+        m = c4d.Matrix()
+        m.v1 = c4d.Vector(transform_matrix[0][0], transform_matrix[0][1], transform_matrix[0][2]) 
+        m.v2 = c4d.Vector(transform_matrix[1][0], transform_matrix[1][1], transform_matrix[1][2])
+        m.v3 = c4d.Vector(transform_matrix[2][0], transform_matrix[2][1], transform_matrix[2][2])
+        tx, ty, tz = transform_matrix[3][0], transform_matrix[3][1], transform_matrix[3][2]
+        m.off = c4d.Vector(tx * scale_factor, ty * scale_factor, -tz * scale_factor)        
+        return m
+
+    def create_null_node(self, parentNode, name, transform=None, indent_level=0):
+        """Create a new c4d null node"""
+        node = c4d.BaseObject(c4d.Onull)
+        node.SetName(name)
+        node[c4d.NULLOBJECT_DISPLAY] = 14
+        self.doc.InsertObject(node)
+        node.InsertUnder(parentNode)
+        if transform:
+            c4d_transform = self.create_c4d_transfrom_from_transform(transform.matrix, 100.0)
+            node.SetMl(c4d_transform)
+            self.logger.log(F"+-> Create Null: name='{node.GetName()}', transform={transform.matrix}", indent_level=indent_level)
+            self.logger.log(F"+-> Create Null: name='{node.GetName()}', transform={c4d_transform} ===================", indent_level=indent_level)
+        else:
+            self.logger.log(F"+-> Create Null: name='{node.GetName()}', transform=IDENTITY", indent_level=indent_level)
+        return node
+
+    def create_redshift_proxy(self, proxy_root, parent_obj, jt_path, transform=None, indent_level=0):
+        """Process compile redshift proxies mode - creates assembly with proxy references"""
+        # check if proxy is already loaded
+        jt_name = os.path.splitext(os.path.basename(jt_path))[0]
+        jt_null_obj = None
+        child = proxy_root.GetDown()  # Get the first child
+        while child:
+            if child.GetName() == jt_name:  # Replace with your target child name
+                print(F"Found child {jt_name}, reuse rs proxy ***************")
+                jt_null_obj = child
+                break  # Stop once found
+            child = child.GetNext()  # Move to the next sibling
+
+        if jt_null_obj:
+            self.logger.log(F"+-> reuse from proxy lib: name='jt_name'", indent_level=indent_level)
+        else:
+            self.logger.log(F"+-> add to proxy lib: name='{jt_name}'", indent_level=indent_level)
+            jt_null_obj = self.create_null_node(proxy_root, jt_name, indent_level=indent_level)
+            
+            # Check if proxy file exists
+            proxy_filename = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
+            proxy_path = os.path.join(self.working_directory, proxy_filename)    
+            proxy_exists = os.path.exists(proxy_path)
+            if proxy_exists:
+                self.logger.log(F"+-> proxy file {proxy_path} exists, load the proxy file", indent_level=indent_level)
+                # Create a new Redshift Proxy object
+                proxy_obj = c4d.BaseObject(1038649) # Redshift proxy plugin ID: com.redshift3d.redshift4c4d.proxyloader
+                # Set the proxy file path (just the filename, not full path, as per requirements)
+                proxy_filename_only = os.path.basename(proxy_path)
+                proxy_obj.SetName(proxy_filename_only)
+                self.doc.InsertObject(proxy_obj)
+                proxy_obj.InsertUnder(parent_obj)
+
+                # Create User Data and XPresso Tag -> work around to be able to set the proxy file name
+                bc = c4d.GetCustomDatatypeDefault(c4d.DTYPE_STRING)
+                bc[c4d.DESC_NAME] = "ProxyName"
+                bc[c4d.DESC_SHORT_NAME] = "ProxyName"
+                bc[c4d.DESC_DEFAULT] = proxy_filename_only
+                user_data_id = proxy_obj.AddUserData(bc)
+                proxy_obj[user_data_id] = proxy_filename_only
+                xpresso_tag = c4d.BaseTag(c4d.Texpresso)
+                proxy_obj.InsertTag(xpresso_tag)
+                xpresso_tag.SetName("XPresso")
+                node_master = xpresso_tag.GetNodeMaster()
+                proxy_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=100)
+                proxy_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
+                userdata_node = node_master.CreateNode(node_master.GetRoot(), c4d.ID_OPERATOR_OBJECT, None, x=100, y=250)
+                userdata_node[c4d.GV_OBJECT_OBJECT_ID] = proxy_obj
+                userdata_output = userdata_node.AddPort(c4d.GV_PORT_OUTPUT, user_data_id)
+                file_desc_id = c4d.DescID(c4d.DescLevel(10000, 1036765, 1038649))
+                proxy_input = proxy_node.AddPort(c4d.GV_PORT_INPUT, file_desc_id)
+                userdata_output.Connect(proxy_input)
+                
+                # move node under the JT null object
+                proxy_obj.InsertUnder(jt_null_obj)  
+                proxy_obj[c4d.REDSHIFT_PROXY_DISPLAY_BOUNDBOX] = False
+                proxy_obj[c4d.REDSHIFT_PROXY_DISPLAY_MODE] = 2
+            else:
+                self.logger.log(F"+-> proxy file {proxy_path} DOES NOT exist, create placeholder cube", indent_level=indent_level)
+                proxy_obj = c4d.BaseObject(c4d.Ocube)
+                proxy_obj[c4d.PRIM_CUBE_LEN] = c4d.Vector(500.0, 500.0, 500.0)  # Size in Cinema 4D units
+                proxy_obj.SetName("Placeholder_Cube")
+                self.doc.InsertObject(proxy_obj)
+                proxy_obj.InsertUnder(jt_null_obj)
+                proxy_obj[c4d.ID_BASEOBJECT_GENERATOR_FLAG] = False
+        
+        # In the Assemply tree: Create an instance reference to the proxy null object in the library and add transformation
+        instance = c4d.BaseObject(c4d.Oinstance)
+        instance.SetName(jt_name + "_Instance")
+        instance[c4d.INSTANCEOBJECT_LINK] = jt_null_obj
+        instance[c4d.INSTANCEOBJECT_RENDERINSTANCE_MODE] = 1
+        self.doc.InsertObject(instance)
+        instance.InsertUnder(parent_obj)
+        if transform:
+            c4d_transform = self.create_c4d_transfrom_from_transform(transform.matrix, 100.0)
+            instance.SetMl(c4d_transform)
+            self.logger.log(F"+-> Proxy instance added to assembly: {instance.GetName()} with transform {transform.matrix}", indent_level=indent_level)
+            self.logger.log(F"+-> Proxy instance added to assembly: {instance.GetName()} with transform {c4d_transform} *******************************", indent_level=indent_level)
+        else:
+            self.logger.log(F"+-> Proxy instance added to assembly: {instance.GetName()} with transform IDENTITY", indent_level=indent_level)
+        
+    def build_assembly(self, fileName, plmxml_obj: PLMXML):
+        """ Output the object hierarchy in a brief format showing only key attributes and indentation for nesting. """
+        # Add header information if available (headers don't have IDs, only attributes)
+        if plmxml_obj.header:
+            self.logger.log(f"Header: author={plmxml_obj.header.author}")
+
+        # Add ProductDef information with proper nesting
+        if plmxml_obj.product_def and plmxml_obj.product_def.instance_graph:
+            graph = plmxml_obj.product_def.instance_graph
+            self.logger.log(f"InstanceGraph: rootRefs={graph.root_refs}")
+
+            # Create maps of all objects for quick lookup
+            self.part_map = {part.id: part for part in graph.parts}
+            self.instance_map = {instance.id: instance for instance in graph.instances}
+
+            # Create maps for representations and compound reps
+            self.repr_map = {}
+            self.compound_rep_map = {}
+            for part in graph.parts:
+                if part.representation:
+                    self.repr_map[part.representation.id] = part.representation
+                    for compound_rep in part.representation.compound_reps:
+                        self.compound_rep_map[compound_rep.id] = compound_rep
+
+            # Track which objects have already been output to avoid duplicates
+            self.output_objects = set()
+
+            # Determine root objects from rootRefs attribute
+            if graph.root_refs:
+                root_ids = graph.root_refs.split()
+            else:
+                # If no rootRefs, consider all top-level parts and instances
+                root_ids = []
+
+            # Create the root structure that will contain the whole PLMXML contents
+            document_root = self.get_child_node(os.path.basename(fileName), None)
+            proxy_root    = self.get_child_node("Proxies", document_root)
+            proxy_root[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = c4d.MODE_OFF
+            proxy_root[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = c4d.MODE_OFF
+            assembly_root = self.get_child_node("Assembly", document_root)
+            assembly_root.SetRelRot(c4d.Vector(0, -c4d.utils.DegToRad(90), 0))
+
+            # Output all root objects and their hierarchy
+            for root_id in root_ids:
+                self.output_object_recursive(root_id, proxy_root, assembly_root, 0)
+
+            # Output relations
+            for relation in graph.relations:
+                relation_line = f"Relation: id={relation.id}"
+                if relation.related_refs:
+                    relation_line += f", relatedRefs={relation.related_refs}"
+                self.logger.log(relation_line)
+
+
+    ###########################
+    ###########################
+    ###########################
+    ###########################
+
+    # Function to recursively output the hierarchy starting from a root object ID
+    def output_object_recursive(self, obj_id, proxy_root, parent_node, indent_level):
+        # Check if this object has already been output
+#            if obj_id in self.output_objects:
+#                return
+
+        # If it's a part
+        if obj_id in self.part_map:
+            part = self.part_map[obj_id]
+            part_line = f"Part: id={part.id}"
+            if part.instance_refs:
+                part_line += f", instanceRefs={part.instance_refs}"
+            if part.representation_refs:
+                part_line += f", representationRefs={part.representation_refs}"
+            if part.nomenclature:
+                part_line += f", nomenclature='{part.nomenclature}'"
+            self.logger.log(part_line, indent_level=indent_level)
+            self.output_objects.add(obj_id)
+
+            # Show transform if it exists
+            if part.transform:
+                transform_line = f"+-> Transform: id={part.transform.id}"
+                if part.transform.matrix:
+                    transform_line += f", matrix={part.transform.matrix}"
+                self.logger.log(transform_line, indent_level=indent_level)
+
+            # Create a new child node for this part
+            new_child_node = self.create_null_node(parent_node, F"Part: {part.nomenclature}", part.transform, indent_level=indent_level)
+
+            # Dive deeper: Show representation of this part if it exists
+            if part.representation:
+                self.output_object_recursive(part.representation.id, proxy_root, new_child_node, indent_level + 1)
+
+            # Show child objects of this part (from instanceRefs)
+            if part.child_objects:
+                for child_obj in part.child_objects:
+                    if isinstance(child_obj, Instance) or isinstance(child_obj, Part) or isinstance(child_obj, CompoundRep):
+                        self.output_object_recursive(child_obj.id, proxy_root, new_child_node, indent_level + 1)
+
+        # If it's an instance
+        elif obj_id in self.instance_map:
+            instance = self.instance_map[obj_id]
+            instance_line = f"Instance: id={instance.id}"
+            if instance.part_ref:
+                instance_line += f", partRef={instance.part_ref}"
+            # Add nomenclature if it exists
+            if instance.nomenclature:
+                instance_line += f", nomenclature='{instance.nomenclature}'"
+            self.output_objects.add(obj_id)
+
+            # write line for this instance to the logger
+            self.logger.log(instance_line, indent_level=indent_level)
+
+            # Show transform if it exists
+            if instance.transform:
+                transform_line = f"+-> Transform: id={instance.transform.id}"
+                if instance.transform.matrix:
+                    transform_line += f", matrix={instance.transform.matrix}"
+                self.logger.log(transform_line, indent_level=indent_level)
+
+            # Create a new child node for this part
+            new_child_node = self.create_null_node(parent_node, F"Inst: {instance.nomenclature}", instance.transform, indent_level=indent_level)
+
+            # Dive deeper: If the instance references a part, output that part as a child
+            if instance.part_ref:
+                referenced_part_ids = instance.part_ref.split()
+                for ref_part_id in referenced_part_ids:
+                    self.output_object_recursive(ref_part_id, proxy_root, new_child_node, indent_level + 1)
+
+        # If it's a representation
+        elif obj_id in self.repr_map:
+            repr_obj = self.repr_map[obj_id]
+            if repr_obj.id not in self.output_objects:
+                repr_line = f"Representation: id={repr_obj.id}"
+                self.logger.log(repr_line, indent_level=indent_level)
+                self.output_objects.add(repr_obj.id)
+
+                # Dive deeper: Show compound reps associated with this representation
+                for compound_rep in repr_obj.compound_reps:
+                    self.output_object_recursive(compound_rep.id, proxy_root, parent_node, indent_level + 1)
+
+        # If it's a compound rep
+        elif obj_id in self.compound_rep_map:
+            compound_rep_obj = self.compound_rep_map[obj_id]
+            if compound_rep_obj.id not in self.output_objects:
+                cr_line = f"CompoundRep: id={compound_rep_obj.id}"
+                if compound_rep_obj.location:
+                    cr_line += f", location={compound_rep_obj.location}"
+                if compound_rep_obj.name:
+                    cr_line += f", name={compound_rep_obj.name}"
+                self.logger.log(cr_line, indent_level=indent_level)
+                self.output_objects.add(compound_rep_obj.id)
+
+                # Show transform if it exists
+                if compound_rep_obj.transform:
+                    transform_line = f"+-> Transform: id={compound_rep_obj.transform.id}"
+                    if compound_rep_obj.transform.matrix:
+                        transform_line += f", matrix={compound_rep_obj.transform.matrix}"
+                    self.logger.log(transform_line, indent_level=indent_level)
+
+                # add instance reference to proxy
+                self.create_redshift_proxy(proxy_root, parent_node, compound_rep_obj.location, compound_rep_obj.transform, indent_level)
+
+def step3_build_assembly(logger, doc, working_directory, plmxml_file_path):
+    xml_content = None  # Initialize to avoid UnboundLocalError
+    try:
+        with open(plmxml_file_path, 'r', encoding="latin-1") as file:
+            xml_content = file.read()
+        plmxml_obj = parse_plmxml(xml_content)
+        assemly_creator = AssemlyCreator(logger, doc, working_directory)
+        assemly_creator.build_assembly(plmxml_file_path, plmxml_obj)
+    except FileNotFoundError:
+        print(f"Error: File '{plmxml_file_path}' not found.", file=sys.stderr)
+        sys.exit(1)
+    except UnicodeDecodeError as e:
+        # Find the line number where the error occurred
+        position = e.start if hasattr(e, 'start') else 0
+        if xml_content is not None:
+            line_num = find_line_number(xml_content, position)
+            print(f"Error decoding file: {e}", file=sys.stderr)
+            print(f"Error occurred around line {line_num} (position {position})", file=sys.stderr)
+        else:
+            print(f"Error decoding file: {e}", file=sys.stderr)
+            print(f"Error occurred at position {e.start if hasattr(e, 'start') else 0}", file=sys.stderr)
+        print(f"Try using a different encoding with --encoding option.", file=sys.stderr)
+        sys.exit(1)
+    except ET.ParseError as e:
+        print(f"Error parsing XML: {e}", file=sys.stderr)
+        print(f"Error occurred at line {e.lineno}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"An error occurred: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+
+
+
+
+
+
+    
 class MaterialPropertyInference:
     """Static methods for inferring PBR properties based on keywords"""
     
@@ -1721,28 +2558,12 @@ class GeometryInstanceManager:
             obj = obj.GetNext()
         return total
     
-    def create_instance(self, original_obj, doc):
+    def create_instance(self, original_obj):
         """Create an instance object that references the original geometry"""
-        if original_obj is None:
-            return None
-            
         instance = c4d.BaseObject(c4d.Oinstance)
-        if instance is None:
-            return None
-            
-        # Link to the original object
         instance[c4d.INSTANCEOBJECT_LINK] = original_obj
-        
-        # Set to render instance mode
-        try:
-            instance[c4d.INSTANCEOBJECT_RENDERINSTANCE_MODE] = 1
-        except:
-            # Compatibility fallback
-            pass
-        
-        # Insert into document
+        instance[c4d.INSTANCEOBJECT_RENDERINSTANCE_MODE] = 1
         doc.InsertObject(instance)
-        
         return instance
     
     def _count_polygons_in_object(self, obj):
@@ -1866,6 +2687,13 @@ class Cinema4DImporter:
         
         return True
     
+
+
+
+
+
+
+
     def _process_all_jt_files_for_material_extraction(self, plmxml_parser, doc):
         """Process all JT files directly for material extraction without building assembly tree - Step 1 only"""
         # Since Redshift is built into Cinema 4D 2025, import is always available
@@ -1977,12 +2805,10 @@ class Cinema4DImporter:
         part_data = plmxml_parser.parts[part_ref]
         part_name = part_data['name'] or f"Part_{part_ref}"
         
-        # Create a null object for this assembly node
+        # Create a null object for this assembly node and insert under parent
         null_obj = c4d.BaseObject(c4d.Onull)
         null_obj[c4d.NULLOBJECT_DISPLAY] = 14
         null_obj.SetName(part_name)
-                
-        # Insert under parent
         null_obj.InsertUnder(parent_obj)
         
         # Process JT files for this part (load geometry, apply materials)
@@ -2020,53 +2846,57 @@ class Cinema4DImporter:
  
                 # identity matrix
                 global_matrix = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
-                self.logger.log(f"🎨 glob matrix: {global_matrix}")
-#                global_matrix = np.eye(4)
+                self.logger.log(f"🎨 indentity glob matrix: {global_matrix}")
+
+                # apply instance transformation
+                inst_transform = jt_data['transform']
+                if inst_transform:
+                    self.logger.log(f"🎨 plmxml inst matrix: {inst_transform}")
+                    # Perform matrix multiplication
+                    result = [0.0] * 16
+                    for row in range(4):
+                        for col in range(4):
+                            sum_val = 0.0
+                            for k in range(4):
+                                sum_val += global_matrix[row * 4 + k] * inst_transform[k * 4 + col]
+                            result[row * 4 + col] = sum_val
+                    global_matrix = result        
+                    self.logger.log(f"🎨 inst glob matrix: {global_matrix}")
 
                 # apply part transformation
                 part_transform = instance_data['transform']
-#                if part_transform:
-#                    self.logger.log(f"🎨 part transf: {part_transform}")
-#                    # Perform matrix multiplication
-#                    result = [0.0] * 16
-#                    for row in range(4):
-#                        for col in range(4):
-#                            sum_val = 0.0
-#                            for k in range(4):
-#                                sum_val += global_matrix[row * 4 + k] * part_transform[k * 4 + col]
-#                            result[row * 4 + col] = sum_val
-#                    global_matrix = result        
-#                    self.logger.log(f"🎨 glob matrix: {global_matrix}")
+                if part_transform:
+                    self.logger.log(f"🎨 plmxml part matrix: {part_transform}")
+                    # Perform matrix multiplication
+                    result = [0.0] * 16
+                    for row in range(4):
+                        for col in range(4):
+                            sum_val = 0.0
+                            for k in range(4):
+                                sum_val += global_matrix[row * 4 + k] * part_transform[k * 4 + col]
+                            result[row * 4 + col] = sum_val
+                    global_matrix = result        
+                    self.logger.log(f"🎨 part glob matrix: {global_matrix}")
 
-                jt_transform = jt_data['transform']
+#                    c4d_transform = self._create_matrix_from_transform(global_matrix, 100.0)
+#                    self.logger.log(f"🎨 part_tf       : {c4d_transform}")
+#                    null_obj.SetMg(c4d_transform)
 #                if jt_transform:
-#                    self.logger.log(f"🎨 part transf: {jt_transform}")
-#                    # Perform matrix multiplication
-#                    result = [0.0] * 16
-#                    for row in range(4):
-#                        for col in range(4):
-#                            sum_val = 0.0
-#                            for k in range(4):
-#                                sum_val += global_matrix[row * 4 + k] * jt_transform[k * 4 + col]
-#                            result[row * 4 + col] = sum_val
-#                    global_matrix = result        
-#                    self.logger.log(f"🎨 glob matrix: {global_matrix}")
-
-                if jt_transform:
-                    # Apply part transform
-                    part_tf = self._create_matrix_from_transform(part_transform, 100.0)
-                    self.logger.log(f"🎨 part_tf       : {part_tf}")
-                    null_obj.SetMg(part_tf)
+#                    # Apply part transform
+#                    part_tf = self._create_matrix_from_transform(part_transform, 100.0)
+#                    self.logger.log(f"🎨 part_tf       : {part_tf}")
+#                    null_obj.SetMg(part_tf)
 
                 # Compile assembly using existing redshift proxies
-                instance_tf = self._create_matrix_from_transform(jt_transform, 1.0)
-                self.logger.log(f"🎨 instance_tf   : {instance_tf}")
-                self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc, instance_tf)
+                c4d_transform = self._create_matrix_from_transform(global_matrix, 100.0)
+                self.logger.log(f"🎨 c4d_transform   : {c4d_transform}")
+                self._process_compile_redshift_proxies(jt_full_path, null_obj, material_properties, doc, c4d_transform)
             else:
                 self.logger.log(f"🎨 ERROR: Mode not supported, should never happen.")
         
-        # Process children
+        # Process instance children
         for child_id in instance_data.get('children', []):
+            self.logger.log(f"🎨🎨🎨🎨🎨🎨🎨 instantce child **************************")
             if child_id in plmxml_parser.instances:
                 self._process_instance(
                     plmxml_parser.instances[child_id], 
@@ -2076,6 +2906,18 @@ class Cinema4DImporter:
                     mode
                 )
     
+#        # Process part children
+#        for child_id in part_data.get('children', []):
+#            self.logger.log(f"🎨🎨🎨🎨🎨🎨🎨 Child **************************")
+#            if child_id in plmxml_parser.instances:
+#                self._process_instance(
+#                    plmxml_parser.instances[child_id], 
+#                    plmxml_parser, 
+#                    doc, 
+#                    null_obj, 
+#                    mode
+#                )
+
     def _process_material_extraction(self, jt_path, material_properties, doc):
         """Process material extraction only - no geometry loading"""        
         self.logger.log(f"🎨 Extracting materials from: {os.path.basename(jt_path)}")
@@ -2618,7 +3460,7 @@ class Cinema4DImporter:
         
         # Create an instance of the JT null object to maintain transforms in the visible hierarchy
         if jt_null_obj:
-            instance_obj = self.geometry_manager.create_instance(jt_null_obj, doc)
+            instance_obj = self.create_instance(jt_null_obj)
             if instance_obj:
                 instance_obj.SetName(jt_name + "_Instance")
                 # Insert instance under the parent to maintain assembly structure
@@ -2946,55 +3788,58 @@ class PLMXMLDialog(gui.GeDialog):
         logger.log(f"🎬 Cinema 4D document path: {c4d_document_path}", "INFO")        
         logger.log(f"🔧 Selected mode: {self.selected_mode}", "INFO")
         
-        try:
-            # Initialize components
-            plmxml_parser = PLMXMLParser(logger)
-            material_manager = Cinema4DMaterialManager(logger)
-            geometry_manager = GeometryInstanceManager(logger)
-            importer = Cinema4DImporter(logger, material_manager, geometry_manager)
+        step3_build_assembly(logger, doc, self.working_directory, self.plmxml_path)
+
+#        try:
+#            # Initialize components
+#            plmxml_parser = PLMXMLParser(logger)
+#            material_manager = Cinema4DMaterialManager(logger)
+#            geometry_manager = GeometryInstanceManager(logger)
+#            importer = Cinema4DImporter(logger, material_manager, geometry_manager)
+#            
+#            # Map mode to string and create proper log file name
+#            mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies"]
+#            mode_steps = ["1", "2", "3"]  # Corresponding step numbers
+#            mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "material_extraction"
+#            mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "1"
             
-            # Map mode to string and create proper log file name
-            mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies"]
-            mode_steps = ["1", "2", "3"]  # Corresponding step numbers
-            mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "material_extraction"
-            mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "1"
-            
-            logger.log(f"🚀 Starting import process in mode: {mode_name}")
+#            logger.log(f"🚀 Starting import process in mode: {mode_name}")
             
             # Parse the PLMXML file
-            if not os.path.exists(self.plmxml_path):
-                logger.log(f"✗ PLMXML file does not exist: {self.plmxml_path}", "ERROR")
-                self.logger.log(f"❌ PLMXML file does not exist: {self.plmxml_path}", "ERROR")  # Also log to dialog logger
-                logger.close()
-                c4d.gui.MessageDialog(f"PLMXML file not found: {self.plmxml_path}")
-                return
+#            if not os.path.exists(self.plmxml_path):
+#                logger.log(f"✗ PLMXML file does not exist: {self.plmxml_path}", "ERROR")
+#                self.logger.log(f"❌ PLMXML file does not exist: {self.plmxml_path}", "ERROR")  # Also log to dialog logger
+#                logger.close()
+#                c4d.gui.MessageDialog(f"PLMXML file not found: {self.plmxml_path}")
+#                return
                 
-            if not plmxml_parser.parse_plmxml(self.plmxml_path):
-                logger.log("✗ PLMXML parsing failed", "ERROR")
-                logger.close()
-                c4d.gui.MessageDialog("PLMXML parsing failed. Check the log file for details.")
-                return
+#            if not plmxml_parser.parse_plmxml(self.plmxml_path):
+#                logger.log("✗ PLMXML parsing failed", "ERROR")
+#                logger.close()
+#                c4d.gui.MessageDialog("PLMXML parsing failed. Check the log file for details.")
+#                return
             
             # Build hierarchy based on selected mode
-            success = importer.build_hierarchy(plmxml_parser, doc, mode_name, self.plmxml_path, self.working_directory)
+ #           success = importer.build_hierarchy(plmxml_parser, doc, mode_name, self.plmxml_path, self.working_directory)
             
-            if success:
-                logger.log(f"🎉 Import completed successfully using mode: {mode_name}")
-                c4d.gui.MessageDialog(f"Import completed successfully using mode: {mode_name}\nLog saved to: {log_path}")
-            else:
-                logger.log(f"✗ Import failed with mode: {mode_name}", "ERROR")
-                c4d.gui.MessageDialog(f"Import failed with mode: {mode_name}\nCheck log for details: {log_path}")
+ #           if success:
+ #               logger.log(f"🎉 Import completed successfully using mode: {mode_name}")
+ #               c4d.gui.MessageDialog(f"Import completed successfully using mode: {mode_name}\nLog saved to: {log_path}")
+ #           else:
+ #               logger.log(f"✗ Import failed with mode: {mode_name}", "ERROR")
+ #               c4d.gui.MessageDialog(f"Import failed with mode: {mode_name}\nCheck log for details: {log_path}")
             
-        except Exception as e:
-            logger.log(f"✗ Import process failed: {str(e)}", "ERROR")
-            logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
-            c4d.gui.MessageDialog(f"Import process failed: {str(e)}\nCheck log for details: {log_path}")
-        finally:
-            logger.close()
-            # Refresh the Cinema 4D interface to show new materials
-            c4d.EventAdd()
-            c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
-            c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+ #       except Exception as e:
+ #           logger.log(f"✗ Import process failed: {str(e)}", "ERROR")
+ #           logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
+ #           c4d.gui.MessageDialog(f"Import process failed: {str(e)}\nCheck log for details: {log_path}")
+ #       finally:
+        logger.close()
+        # Refresh the Cinema 4D interface to show new materials
+
+        c4d.EventAdd()
+        c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
+        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
 
 class PLMXMLImporter(plugins.CommandData):
