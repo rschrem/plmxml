@@ -640,11 +640,17 @@ class AssemlyCreator:
     def create_c4d_transfrom_from_transform(self, transform_matrix, scale_factor=100.0):
         """Convert 4x4 matrix to Cinema 4D transformation matrix and scale from meter to centimeters"""
         m = c4d.Matrix()
-        m.v1 = c4d.Vector(transform_matrix[0][0], transform_matrix[0][1], transform_matrix[0][2]) 
-        m.v2 = c4d.Vector(transform_matrix[1][0], transform_matrix[1][1], transform_matrix[1][2])
-        m.v3 = c4d.Vector(transform_matrix[2][0], transform_matrix[2][1], transform_matrix[2][2])
-        tx, ty, tz = transform_matrix[3][0], transform_matrix[3][1], transform_matrix[3][2]
-        m.off = c4d.Vector(tx * scale_factor, ty * scale_factor, -tz * scale_factor)        
+        
+        # Apply coordinate flip directly to rotation columns
+        m.v1 = c4d.Vector(transform_matrix[0][0], transform_matrix[0][1], -transform_matrix[0][2]) 
+        m.v2 = c4d.Vector(transform_matrix[1][0], transform_matrix[1][1], -transform_matrix[1][2])
+        m.v3 = c4d.Vector(-transform_matrix[2][0], -transform_matrix[2][1], transform_matrix[2][2])
+
+        m.off = c4d.Vector(
+            transform_matrix[3][0] * scale_factor,
+            transform_matrix[3][1] * scale_factor,
+            -transform_matrix[3][2] * scale_factor
+        )
         return m
 
     def create_null_node(self, parentNode, name, transform=None, indent_level=0):
@@ -3788,55 +3794,56 @@ class PLMXMLDialog(gui.GeDialog):
         logger.log(f"🎬 Cinema 4D document path: {c4d_document_path}", "INFO")        
         logger.log(f"🔧 Selected mode: {self.selected_mode}", "INFO")
         
-        step3_build_assembly(logger, doc, self.working_directory, self.plmxml_path)
-
-#        try:
-#            # Initialize components
-#            plmxml_parser = PLMXMLParser(logger)
-#            material_manager = Cinema4DMaterialManager(logger)
-#            geometry_manager = GeometryInstanceManager(logger)
-#            importer = Cinema4DImporter(logger, material_manager, geometry_manager)
-#            
-#            # Map mode to string and create proper log file name
-#            mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies"]
-#            mode_steps = ["1", "2", "3"]  # Corresponding step numbers
-#            mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "material_extraction"
-#            mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "1"
-            
-#            logger.log(f"🚀 Starting import process in mode: {mode_name}")
-            
-            # Parse the PLMXML file
-#            if not os.path.exists(self.plmxml_path):
-#                logger.log(f"✗ PLMXML file does not exist: {self.plmxml_path}", "ERROR")
-#                self.logger.log(f"❌ PLMXML file does not exist: {self.plmxml_path}", "ERROR")  # Also log to dialog logger
-#                logger.close()
-#                c4d.gui.MessageDialog(f"PLMXML file not found: {self.plmxml_path}")
-#                return
+        try:
+            if self.selected_mode == 2:
+                step3_build_assembly(logger, doc, self.working_directory, self.plmxml_path)
+            else:
+                # Initialize components
+                plmxml_parser = PLMXMLParser(logger)
+                material_manager = Cinema4DMaterialManager(logger)
+                geometry_manager = GeometryInstanceManager(logger)
+                importer = Cinema4DImporter(logger, material_manager, geometry_manager)
                 
-#            if not plmxml_parser.parse_plmxml(self.plmxml_path):
-#                logger.log("✗ PLMXML parsing failed", "ERROR")
-#                logger.close()
-#                c4d.gui.MessageDialog("PLMXML parsing failed. Check the log file for details.")
-#                return
+                # Map mode to string and create proper log file name
+                mode_names = ["material_extraction", "create_redshift_proxies", "compile_redshift_proxies"]
+                mode_steps = ["1", "2", "3"]  # Corresponding step numbers
+                mode_name = mode_names[self.selected_mode] if 0 <= self.selected_mode < len(mode_names) else "material_extraction"
+                mode_step = mode_steps[self.selected_mode] if 0 <= self.selected_mode < len(mode_steps) else "1"
+                
+                logger.log(f"🚀 Starting import process in mode: {mode_name}")
+                
+                # Parse the PLMXML file
+                if not os.path.exists(self.plmxml_path):
+                    logger.log(f"✗ PLMXML file does not exist: {self.plmxml_path}", "ERROR")
+                    self.logger.log(f"❌ PLMXML file does not exist: {self.plmxml_path}", "ERROR")  # Also log to dialog logger
+                    logger.close()
+                    c4d.gui.MessageDialog(f"PLMXML file not found: {self.plmxml_path}")
+                    return
+                    
+                if not plmxml_parser.parse_plmxml(self.plmxml_path):
+                    logger.log("✗ PLMXML parsing failed", "ERROR")
+                    logger.close()
+                    c4d.gui.MessageDialog("PLMXML parsing failed. Check the log file for details.")
+                    return
+                
+                # Build hierarchy based on selected mode
+                success = importer.build_hierarchy(plmxml_parser, doc, mode_name, self.plmxml_path, self.working_directory)
+                
+                if success:
+                    logger.log(f"🎉 Import completed successfully using mode: {mode_name}")
+                    c4d.gui.MessageDialog(f"Import completed successfully using mode: {mode_name}\nLog saved to: {log_path}")
+                else:
+                    logger.log(f"✗ Import failed with mode: {mode_name}", "ERROR")
+                    c4d.gui.MessageDialog(f"Import failed with mode: {mode_name}\nCheck log for details: {log_path}")
             
-            # Build hierarchy based on selected mode
- #           success = importer.build_hierarchy(plmxml_parser, doc, mode_name, self.plmxml_path, self.working_directory)
-            
- #           if success:
- #               logger.log(f"🎉 Import completed successfully using mode: {mode_name}")
- #               c4d.gui.MessageDialog(f"Import completed successfully using mode: {mode_name}\nLog saved to: {log_path}")
- #           else:
- #               logger.log(f"✗ Import failed with mode: {mode_name}", "ERROR")
- #               c4d.gui.MessageDialog(f"Import failed with mode: {mode_name}\nCheck log for details: {log_path}")
-            
- #       except Exception as e:
- #           logger.log(f"✗ Import process failed: {str(e)}", "ERROR")
- #           logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
- #           c4d.gui.MessageDialog(f"Import process failed: {str(e)}\nCheck log for details: {log_path}")
- #       finally:
-        logger.close()
-        # Refresh the Cinema 4D interface to show new materials
+        except Exception as e:
+            logger.log(f"✗ Import process failed: {str(e)}", "ERROR")
+            logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
+            c4d.gui.MessageDialog(f"Import process failed: {str(e)}\nCheck log for details: {log_path}")
+        finally:
+            logger.close()
 
+        # Refresh the Cinema 4D interface to show new materials
         c4d.EventAdd()
         c4d.DrawViews(c4d.DRAWFLAGS_FORCEFULLREDRAW)
         c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
