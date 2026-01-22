@@ -289,7 +289,7 @@ class CompoundRep(BaseObject):
         # Child elements
         self.transform = None
         self.user_data = []
-        self.table_attribute = None
+        self.table_attributes = []
 
         for child in element:
             if child.tag.endswith('Transform'):
@@ -297,7 +297,7 @@ class CompoundRep(BaseObject):
             elif child.tag.endswith('UserData'):
                 self.user_data.append(UserData(child))
             elif child.tag.endswith('TableAttribute'):
-                self.table_attribute = TableAttribute(child)
+                self.table_attributes.append(TableAttribute(child))
 
     def to_dict(self):
         result = {
@@ -611,6 +611,15 @@ def find_line_number(text: str, position: int) -> int:
 class AssemlyCreator:
     """Step 3: Assembly creation"""
     
+    def traverse_hierarchy(self, op):
+        """Generator that yields all objects in the hierarchy."""
+        while op:
+            yield op
+            # Traverse children
+            for child in self.traverse_hierarchy(op.GetDown()):
+                yield child
+            op = op.GetNext()
+
     def __init__(self, logger, doc, working_directory):
         self.logger = logger
         self.doc = doc
@@ -749,7 +758,272 @@ class AssemlyCreator:
             self.logger.log(F"+-> Proxy instance added to assembly: {instance.GetName()} with transform {c4d_transform} *******************************", indent_level=indent_level)
         else:
             self.logger.log(F"+-> Proxy instance added to assembly: {instance.GetName()} with transform IDENTITY", indent_level=indent_level)
-        
+
+
+
+
+################
+################
+################
+
+    def collect_materials(self, fileName, plmxml_obj: PLMXML):
+        self.numberOfProcessedObjects = 0
+
+        """ Output the object hierarchy in a brief format showing only key attributes and indentation for nesting. """
+        # Add header information if available (headers don't have IDs, only attributes)
+        if plmxml_obj.header:
+            self.logger.log(f"Header: author={plmxml_obj.header.author}")
+
+        # Add ProductDef information with proper nesting
+        if plmxml_obj.product_def and plmxml_obj.product_def.instance_graph:
+            graph = plmxml_obj.product_def.instance_graph
+            self.logger.log(f"InstanceGraph: rootRefs={graph.root_refs}")
+
+            # Create maps of all objects for quick lookup
+            self.part_map = {part.id: part for part in graph.parts}
+            self.instance_map = {instance.id: instance for instance in graph.instances}
+
+            # Create maps for representations and compound reps
+            self.repr_map = {}
+            self.compound_rep_map = {}
+            for part in graph.parts:
+                if part.representation:
+                    self.repr_map[part.representation.id] = part.representation
+                    for compound_rep in part.representation.compound_reps:
+                        self.compound_rep_map[compound_rep.id] = compound_rep
+
+            # Track which objects have already been output to avoid duplicates
+            self.output_objects = set()
+
+            # Determine root objects from rootRefs attribute
+            if graph.root_refs:
+                root_ids = graph.root_refs.split()
+            else:
+                # If no rootRefs, consider all top-level parts and instances
+                root_ids = []
+
+            # Output all root objects and their hierarchy
+            for root_id in root_ids:
+                self.collect_materials_recursive(root_id, 0)
+
+    # Function to recursively output the hierarchy starting from a root object ID
+    def collect_materials_recursive(self, obj_id, indent_level):
+        if self.numberOfProcessedObjects > 0:
+            return
+
+        # If it's a part
+        if obj_id in self.part_map:
+            part = self.part_map[obj_id]
+            part_line = f"Part: id={part.id}"
+            if part.instance_refs:
+                part_line += f", instanceRefs={part.instance_refs}"
+            if part.representation_refs:
+                part_line += f", representationRefs={part.representation_refs}"
+            if part.nomenclature:
+                part_line += f", nomenclature='{part.nomenclature}'"
+            self.logger.log(part_line, indent_level=indent_level)
+            self.output_objects.add(obj_id)
+
+            # Dive deeper: Show representation of this part if it exists
+            if part.representation:
+                self.collect_materials_recursive(part.representation.id, indent_level + 1)
+
+            # Show child objects of this part (from instanceRefs)
+            if part.child_objects:
+                for child_obj in part.child_objects:
+                    if isinstance(child_obj, Instance) or isinstance(child_obj, Part) or isinstance(child_obj, CompoundRep):
+                        self.collect_materials_recursive(child_obj.id, indent_level + 1)
+
+        # If it's an instance
+        elif obj_id in self.instance_map:
+            instance = self.instance_map[obj_id]
+            instance_line = f"Instance: id={instance.id}"
+            if instance.part_ref:
+                instance_line += f", partRef={instance.part_ref}"
+            # Add nomenclature if it exists
+            if instance.nomenclature:
+                instance_line += f", nomenclature='{instance.nomenclature}'"
+            self.output_objects.add(obj_id)
+
+            # write line for this instance to the logger
+            self.logger.log(instance_line, indent_level=indent_level)
+
+            # Dive deeper: If the instance references a part, output that part as a child
+            if instance.part_ref:
+                referenced_part_ids = instance.part_ref.split()
+                for ref_part_id in referenced_part_ids:
+                    self.collect_materials_recursive(ref_part_id, indent_level + 1)
+
+        # If it's a representation
+        elif obj_id in self.repr_map:
+            repr_obj = self.repr_map[obj_id]
+            if repr_obj.id not in self.output_objects:
+                repr_line = f"Representation: id={repr_obj.id}"
+                self.logger.log(repr_line, indent_level=indent_level)
+                self.output_objects.add(repr_obj.id)
+
+                # Dive deeper: Show compound reps associated with this representation
+                for compound_rep in repr_obj.compound_reps:
+                    self.collect_materials_recursive(compound_rep.id, indent_level + 1)
+
+        # If it's a compound rep
+        elif obj_id in self.compound_rep_map:
+            compound_rep_obj = self.compound_rep_map[obj_id]
+            if compound_rep_obj.id not in self.output_objects:
+                cr_line = f"CompoundRep: id={compound_rep_obj.id}"
+                if compound_rep_obj.location:
+                    cr_line += f", location={compound_rep_obj.location}"
+                if compound_rep_obj.name:
+                    cr_line += f", name={compound_rep_obj.name}"
+                self.logger.log(cr_line, indent_level=indent_level)
+                self.output_objects.add(compound_rep_obj.id)
+
+            # Check if jt file exists - ignore if not found
+            jt_path = os.path.join(self.working_directory, compound_rep_obj.location)
+            if not os.path.exists(jt_path):
+                self.logger.log(f"⚠ JT file does not exist: {jt_path} - ignoring materials an geometry", "WARNING")
+                return         
+
+            # ensure all materials of this part ar in material c4d meterial libary as redshift materials
+            for table in compound_rep_obj.table_attributes:
+                if table.definition_ref == "j0MaterialDetailMatrix":
+                    self.logger.log(F"Material Table:", indent_level=indent_level)
+                    for row in table.rows:
+                        for column in row.columns:
+                            self.logger.log(F"{column.col} = '{column.value}'", indent_level=indent_level)
+                    materialName = F"{table.rows[0].columns[0].value} {table.rows[0].columns[4].value} {table.rows[0].columns[7].value}"
+                    materialName = re.sub(r'[^A-Za-z0-9_.]', "_", materialName)
+                    materialName = re.sub(r'_+', "_", materialName)
+                    self.logger.log(F"Material Name: {materialName}", indent_level=indent_level)
+
+            # check wheter a redshift proxy file already exists - if so we are done
+            proxy_path = os.path.splitext(os.path.basename(jt_path))[0] + ".rs"
+            proxy_path = os.path.join(self.working_directory, proxy_path)
+
+            self.logger.log(f"ℹ working   : {self.working_directory}")
+            self.logger.log(f"ℹ jt_path   : {jt_path}")
+            self.logger.log(f"ℹ proxy_path: {proxy_path}")
+
+            proxy_exists = os.path.exists(proxy_path)
+            if proxy_exists:
+                self.logger.log(f"ℹ Redshift proxy already exists, skipping creation: {proxy_path}")
+                return
+            self.logger.log(f"ℹ Redshift proxy DOES NOT exist: {proxy_path}")
+
+            # Load geometry from JT file into temporary c4d document
+            temp_doc = self.doc # c4d.documents.BaseDocument()
+            load_success = False                
+            try:
+                self.logger.log(f"⏳ Loading JT file: {jt_path}")
+                load_success = c4d.documents.MergeDocument(
+                    temp_doc, 
+                    jt_path, 
+                    c4d.SCENEFILTER_OBJECTS # | c4d.SCENEFILTER_MATERIALS
+                )
+            except Exception as e:
+                self.logger.log(f"✗ EXCEPTION during JT load: {str(e)}", "ERROR")
+                temp_doc = None
+                return
+
+            # Get the first object from temp document (there may be multiple root objects)
+            self.logger.log(f"⏳ JT file loaded sucessfully: {jt_path}")
+            temp_obj = temp_doc.GetFirstObject()
+            if temp_obj is None:
+                self.logger.log(f"⚠ No geometry found in JT file: {jt_path}", "WARNING")
+                temp_doc = None
+                return
+
+            # If there is at least one object that names contains the substring FINAL_PART: Delete all other objects
+            all_objects = list(self.traverse_hierarchy(temp_doc.GetFirstObject()))
+            keep = [obj for obj in all_objects if "FINAL_PART" in obj.GetName()]
+            if keep:
+                self.logger.log("✓ Found objects with 'FINAL_PART'. Deleting all others...")
+                proxy_root = self.get_child_node("Proxy", None)
+                keep_set = set(keep)
+
+                # Move objects not in 'keep' to root before removing anything
+                for obj in all_objects:
+                    if obj in keep_set:
+                        if obj.GetUp() is not None: # if not a root node already
+                            obj.Remove()  
+                            obj.InsertUnder(proxy_root)
+
+                # delete all nodes except proxy root
+                it = temp_doc.GetFirstObject()
+                while it:
+                    if it != proxy_root:
+                        it.Remove()
+                    it = it.GetNext()
+
+                # Now safe to remove objects that are not in 'keep'
+#                for obj in all_objects:
+#                    if obj not in keep_set:
+#                        obj.Remove()
+#            else:                
+#                self.logger.log(f"✓ There were no objects that names contains the substring FINAL_PART")
+
+            self.numberOfProcessedObjects = self.numberOfProcessedObjects + 1
+
+            # select all objects for export
+            first_obj = self.doc.GetFirstObject()
+            if first_obj:
+                for obj in self.traverse_hierarchy(first_obj):
+                    obj.SetBit(c4d.BIT_ACTIVE)
+
+            self.logger.log("⏳ pause after replace with materials from the PLMXML file specification to prevent race conditions...")
+            c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+            self.doc.FlushUndoBuffer()  # If you don't need undo
+            c4d.EventAdd()
+            c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+            # Light viewport update
+            c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW | c4d.DRAWFLAGS_NO_THREAD)
+            self.doc.FlushUndoBuffer()  # If you don't need undo
+            c4d.EventAdd()
+            c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
+
+            # save temp_doc as redhift proxy file
+            try:
+                format_id = 1038650
+                self.logger.log(f"✓ Save redshift proxy in this file: {proxy_path}")
+                if c4d.documents.SaveDocument(temp_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_DONTADDTORECENTLIST, format_id):
+                    self.logger.log(f"✅ Redshift proxy processing completed.")
+                else:
+                    self.logger.log(f"❌ Redshift proxy export failed.", "ERROR")
+            except Exception as e:
+                self.logger.log(f"✗ Redshift proxy export failed with format {format_id} into {proxy_path}, Exception {str(e)}", "ERROR")
+            
+            # Clean up temp document
+#            first_obj = self.doc.GetFirstObject()
+#            if first_obj:
+#                for obj in self.traverse_hierarchy(first_obj):
+#                    obj.Remove()
+            temp_doc = None
+
+            # Update Cinema 4D to reflect selection changes
+            c4d.EventAdd()
+
+
+
+
+
+
+
+################################################################################################################################
+################################################################################################################################
+################################################################################################################################
+################################################################################################################################
+################################################################################################################################
+################################################################################################################################
+################################################################################################################################
+################################################################################################################################
+################################################################################################################################
+################################################################################################################################
+
+
+
+
+
+
     def build_assembly(self, fileName, plmxml_obj: PLMXML):
         """ Output the object hierarchy in a brief format showing only key attributes and indentation for nesting. """
         # Add header information if available (headers don't have IDs, only attributes)
@@ -794,7 +1068,7 @@ class AssemlyCreator:
 
             # Output all root objects and their hierarchy
             for root_id in root_ids:
-                self.output_object_recursive(root_id, proxy_root, assembly_root, 0)
+                self.output_object_recursive(root_id, proxy_root, assembly_root, document_root, 0)
 
             # Output relations
             for relation in graph.relations:
@@ -803,14 +1077,13 @@ class AssemlyCreator:
                     relation_line += f", relatedRefs={relation.related_refs}"
                 self.logger.log(relation_line)
 
-
-    ###########################
-    ###########################
-    ###########################
-    ###########################
-
     # Function to recursively output the hierarchy starting from a root object ID
-    def output_object_recursive(self, obj_id, proxy_root, parent_node, indent_level):
+    # obj_id          Object ID in the plmxml file
+    # proxy_root      Null node that is the parent to all prxy nodes
+    # assembly_root   Null node that is the parent to all assemply root nodes
+    # parent_node     Parent node that should be tha parent of the new node
+    # indent_level    Indet level for debug output
+    def output_object_recursive(self, obj_id, proxy_root, assembly_root, parent_node, indent_level):
         # Check if this object has already been output
 #            if obj_id in self.output_objects:
 #                return
@@ -840,13 +1113,13 @@ class AssemlyCreator:
 
             # Dive deeper: Show representation of this part if it exists
             if part.representation:
-                self.output_object_recursive(part.representation.id, proxy_root, new_child_node, indent_level + 1)
+                self.output_object_recursive(part.representation.id, proxy_root, assembly_root, new_child_node, indent_level + 1)
 
             # Show child objects of this part (from instanceRefs)
             if part.child_objects:
                 for child_obj in part.child_objects:
                     if isinstance(child_obj, Instance) or isinstance(child_obj, Part) or isinstance(child_obj, CompoundRep):
-                        self.output_object_recursive(child_obj.id, proxy_root, new_child_node, indent_level + 1)
+                        self.output_object_recursive(child_obj.id, proxy_root, assembly_root, new_child_node, indent_level + 1)
 
         # If it's an instance
         elif obj_id in self.instance_map:
@@ -876,7 +1149,7 @@ class AssemlyCreator:
             if instance.part_ref:
                 referenced_part_ids = instance.part_ref.split()
                 for ref_part_id in referenced_part_ids:
-                    self.output_object_recursive(ref_part_id, proxy_root, new_child_node, indent_level + 1)
+                    self.output_object_recursive(ref_part_id, proxy_root, assembly_root, new_child_node, indent_level + 1)
 
         # If it's a representation
         elif obj_id in self.repr_map:
@@ -888,7 +1161,7 @@ class AssemlyCreator:
 
                 # Dive deeper: Show compound reps associated with this representation
                 for compound_rep in repr_obj.compound_reps:
-                    self.output_object_recursive(compound_rep.id, proxy_root, parent_node, indent_level + 1)
+                    self.output_object_recursive(compound_rep.id, proxy_root, assembly_root, parent_node, indent_level + 1)
 
         # If it's a compound rep
         elif obj_id in self.compound_rep_map:
@@ -911,6 +1184,42 @@ class AssemlyCreator:
 
                 # add instance reference to proxy
                 self.create_redshift_proxy(proxy_root, parent_node, compound_rep_obj.location, compound_rep_obj.transform, indent_level)
+
+
+
+
+
+def step1_collect_materials(logger, doc, working_directory, plmxml_file_path):
+    xml_content = None  # Initialize to avoid UnboundLocalError
+    try:
+        with open(plmxml_file_path, 'r', encoding="latin-1") as file:
+            xml_content = file.read()
+        plmxml_obj = parse_plmxml(xml_content)
+        assemly_creator = AssemlyCreator(logger, doc, working_directory)
+        assemly_creator.collect_materials(plmxml_file_path, plmxml_obj)
+    except FileNotFoundError:
+        print(f"Error: File '{plmxml_file_path}' not found.", file=sys.stderr)
+        sys.exit(1)
+    except UnicodeDecodeError as e:
+        # Find the line number where the error occurred
+        position = e.start if hasattr(e, 'start') else 0
+        if xml_content is not None:
+            line_num = find_line_number(xml_content, position)
+            print(f"Error decoding file: {e}", file=sys.stderr)
+            print(f"Error occurred around line {line_num} (position {position})", file=sys.stderr)
+        else:
+            print(f"Error decoding file: {e}", file=sys.stderr)
+            print(f"Error occurred at position {e.start if hasattr(e, 'start') else 0}", file=sys.stderr)
+        print(f"Try using a different encoding with --encoding option.", file=sys.stderr)
+        sys.exit(1)
+    except ET.ParseError as e:
+        print(f"Error parsing XML: {e}", file=sys.stderr)
+        print(f"Error occurred at line {e.lineno}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"An error occurred: {e}", file=sys.stderr)
+        sys.exit(1)
+
 
 def step3_build_assembly(logger, doc, working_directory, plmxml_file_path):
     xml_content = None  # Initialize to avoid UnboundLocalError
@@ -3136,7 +3445,7 @@ class Cinema4DImporter:
 #        c4d.GeSyncMessage(c4d.EVMSG_CHANGE)
 
         # Use only the known working format ID 1038650 for Redshift proxy export
-        format_id = 1038650            
+        format_id = 1038650
         try:
             if c4d.documents.SaveDocument(current_doc, proxy_path, c4d.SAVEDOCUMENTFLAGS_0, format_id):
                 self.logger.log(f"✓ Redshift proxy processing completed for: {os.path.basename(proxy_path)}")
@@ -3795,7 +4104,9 @@ class PLMXMLDialog(gui.GeDialog):
         logger.log(f"🔧 Selected mode: {self.selected_mode}", "INFO")
         
         try:
-            if self.selected_mode == 2:
+            if self.selected_mode == 0:
+                step1_collect_materials(logger, doc, self.working_directory, self.plmxml_path)
+            elif self.selected_mode == 2:
                 step3_build_assembly(logger, doc, self.working_directory, self.plmxml_path)
             else:
                 # Initialize components
